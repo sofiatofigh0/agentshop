@@ -37,4 +37,6 @@ python agent.py
 
 ## Status
 
-Scaffold only — the files are placeholders. Nothing is implemented yet.
+**Baseline** — `agent.py` is a single LLM call: one system prompt, one user
+message, one printed report. No tools, no loop. It's the control to measure the
+tool-using agent against. `tools.py` is still a placeholder.
