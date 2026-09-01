@@ -17,10 +17,10 @@ from sample_jobs import SAMPLES
 # research_useful: whether an external search could plausibly change that answer.
 EXPECTED = {
     # Excellent role fit, but the posting is SF hybrid 3 days onsite and the
-    # profile says remote-or-NYC, will not relocate. Worth one conversation to
-    # test the location, not a clean apply. Research could move it: whether the
-    # company is credible and whether it hires remote both matter here.
-    "STRONG_FIT_AI_PRODUCT": {"recommendation": "MAYBE", "research_useful": True},
+    # profile refuses relocation — a hard constraint, so the geography rules it
+    # out regardless of how well the rest matches. Was MAYBE; the agent argued
+    # SKIP three runs running and it had the better reading.
+    "STRONG_FIT_AI_PRODUCT": {"recommendation": "SKIP", "research_useful": True},
     # Hits several items on the avoid-list outright. Nothing to search on — the
     # employer is anonymous, so no external fact is reachable.
     "AMBIGUOUS_ROLE": {"recommendation": "SKIP", "research_useful": False},
