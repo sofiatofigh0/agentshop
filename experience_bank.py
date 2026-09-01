@@ -1,25 +1,27 @@
 """
 The factual source of truth for everything the agent writes about Sofia Tofigh.
 
-Every claim in a generated resume or cover letter must trace back to something
-in this file. The factuality check in application_generator.py compares each
-draft against this dictionary and strips anything it cannot find here.
+Every claim in a generated resume or cover letter must trace back to this file.
 
-HOW TO READ THE EVIDENCE LEVELS
+METRIC TYPES
+------------
+  verified_metric              An exact figure. State it as written.
+  approximate_supported_metric A real measurement Sofia has stated with
+                               approximation. Use ONLY with approximation
+                               language: "~", "approximately", "roughly",
+                               "more than". Never sharpen it into an exact number.
+  possible_metric_to_validate  An open question, not an achievement. NEVER
+                               appears in a generated document in any form.
+
+PROVENANCE (the "source" field)
 -------------------------------
-Each project carries its facts in fields with different permissions:
+  verified_resume     Appears on Sofia's existing resume.
+  candidate_provided  Stated directly by Sofia.
+  supported_inference A reasonable reading of verified work that she approved.
+  needs_validation    Unconfirmed. The generator MUST NOT use these.
 
-  verified            Level 1. Stated directly by Sofia. Use freely.
-  framing             Level 2. Reasonable interpretations of the verified work
-                      (cross-functional leadership, 0->1 ownership, AI product
-                      management). Safe to use because the underlying facts hold.
-  metrics             Level 1 numbers that are safe to state as written.
-  metric_variants     Real numbers from DIFFERENT analyses of the same project.
-                      Pick exactly one per bullet. Never combine or sum them.
-  possible_metric_to_validate
-                      Level 3. Plausible but unconfirmed. NEVER put these in a
-                      resume, cover letter, or strategy document. They exist so
-                      Sofia can check them and promote them to metrics.
+The first three are usable. `needs_validation` is not, until Sofia promotes it.
+The system may improve framing aggressively. It may never manufacture a number.
 
 Never invent employers, dates, degrees, titles, direct reports, technologies,
 certifications, revenue ownership, customers, promotions, funding events, or
@@ -27,43 +29,73 @@ projects. If a job requires something absent here, it is a gap — say so.
 """
 
 # ---------------------------------------------------------------------------
-# Identity
+# Identity. Email and phone come only from Sofia's existing resume/profile
+# configuration and are never printed to logs or traces.
 # ---------------------------------------------------------------------------
 
 IDENTITY = {
     "name": "Sofia Tofigh",
-    "location": "New York City",
-    # Not supplied yet. Left blank rather than marked TODO so it does not block
-    # generation — a resume will simply omit the header line until filled in.
-    "email": "",
-    "phone": "",
-    "linkedin": "",
+    "location": "New York, NY",
+    "linkedin": "linkedin.com/in/sofia-tofigh/",
+    "email": "",   # supply from the existing resume; never log
+    "phone": "",   # supply from the existing resume; never log
     "portfolio": "",
-    "languages": [
-        {"language": "English", "level": "native/fluent"},
-        {"language": "Persian (Farsi)", "level": "fluent"},
-        {"language": "German", "level": "intermediate"},
-    ],
-    "years_pm_experience": (
-        "Approximately 4 years of direct product management experience as of 2026, "
-        "plus prior technical consulting/engineering experience at Confluent. "
-        "Do not write '6 years of PM experience'."
+    "experience_length": (
+        "~4 years direct product management experience; ~5+ years total technical "
+        "and product experience including Confluent. Never write '6 years of PM "
+        "experience' and never stretch tenure to match a job description."
     ),
     "career_narrative": (
         "Technical consulting/engineering (Confluent) -> marketplace Product Manager "
-        "(Axial) -> enterprise AI Product Manager (JPMorgan Chase). The through-line "
-        "is comfort moving between users, business problems, data, AI systems and "
-        "engineering."
+        "(Axial) -> enterprise AI Product Manager (JPMorgan Chase)."
     ),
 }
 
 
 # ---------------------------------------------------------------------------
-# Roles, newest first
+# Personal background. NOT professional evidence. Never appears in a resume by
+# default. Informs voice and storytelling only, and only when genuinely relevant.
+# ---------------------------------------------------------------------------
+
+PERSONAL_BACKGROUND = {
+    "origin": {
+        "fact": "Grew up across New York and Tehran",
+        "source": "candidate_provided",
+        "use_when": (
+            "international perspective, cross-cultural communication, global "
+            "operations, or heterogeneous users genuinely matter, or the "
+            "application asks for unusual background"
+        ),
+    },
+    "languages": [
+        {"language": "English", "level": "native/fluent", "source": "candidate_provided"},
+        {"language": "Persian (Farsi)", "level": "fluent", "source": "candidate_provided"},
+        {"language": "German", "level": "intermediate", "source": "candidate_provided"},
+    ],
+    "transition_story": {
+        "fact": "Completed a coding bootcamp around 2020 while transitioning deeper into technology",
+        "source": "candidate_provided",
+        "use_when": "founder-type applications, grit questions, unconventional-path questions, 'tell us something not on your resume'",
+    },
+    "college_work": {
+        "fact": "Worked and bartended during college",
+        "source": "candidate_provided",
+        "use_when": "same as transition_story",
+    },
+    "education_angle": {
+        "fact": "Economics plus technical consulting plus product",
+        "source": "supported_inference",
+        "use_when": "explaining the combination of business intuition, systems thinking, quantitative reasoning and product judgement",
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 
 EXPERIENCE_BANK = {
     "identity": IDENTITY,
+    "personal_background": PERSONAL_BACKGROUND,
+
     "roles": [
         {
             "company": "JPMorgan Chase",
@@ -74,13 +106,22 @@ EXPERIENCE_BANK = {
             "domain": "Financial services / private wealth / enterprise AI",
             "summary": (
                 "Builds AI products for financial advisors in a highly regulated "
-                "environment — the part of AI product work that demos leave out: "
-                "evaluation, reliability, compliance, user trust, legal constraints, "
-                "rollout governance and model failure cases."
+                "environment — the part of AI product work demos leave out: evaluation, "
+                "reliability, compliance, user trust, legal constraints, rollout "
+                "governance and model failure cases."
+            ),
+            "positioning": (
+                "Three genuinely distinct AI stories, not one AI project. Pick the one "
+                "that matches the role rather than blending them."
             ),
             "projects": [
                 {
                     "name": "AI meeting summarization for financial advisors",
+                    "story_id": "A",
+                    "primary_strengths": [
+                        "user discovery", "enterprise AI", "regulated deployment",
+                        "Legal/Risk/Compliance", "workflow automation",
+                    ],
                     "problem": (
                         "Financial advisors spend meaningful time documenting meetings "
                         "and turning conversations into compliant notes and summaries."
@@ -88,7 +129,7 @@ EXPERIENCE_BANK = {
                     "actions": [
                         "Led end-to-end product delivery of an AI meeting summarization product for financial advisors",
                         "Conducted and translated research from 6+ advisor interviews",
-                        "Identified useful summary structures and turned that research into 3 LLM-powered summarization templates",
+                        "Turned that research into 3 LLM-powered summarization templates",
                         "Worked through client-consent design and redaction requirements",
                         "Partnered with Legal, Risk and Compliance",
                         "Defined the rollout approach and participated in quality and evaluation design",
@@ -98,34 +139,44 @@ EXPERIENCE_BANK = {
                         "Expected user value of approximately 30 minutes of documentation time saved per meeting",
                     ],
                     "metrics": [
-                        "Phased rollout targeting ~5,000 advisors",
-                        "~30 minutes of documentation time saved per meeting (expected)",
+                        {"claim": "6+ advisor interviews conducted and translated into product requirements",
+                         "type": "verified_metric", "source": "candidate_provided"},
+                        {"claim": "3 LLM-powered summarization templates",
+                         "type": "verified_metric", "source": "candidate_provided"},
+                        {"claim": "phased rollout targeting ~5,000 advisors",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "~30 minutes of documentation time saved per meeting (expected, not yet measured)",
+                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                         "caveat": "This is an expected value. Do not present it as a measured outcome."},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Advisor adoption rate during the phased rollout",
-                        "Measured (rather than expected) time saved per meeting post-launch",
+                        {"claim": "Advisor adoption rate during the phased rollout", "source": "needs_validation"},
+                        {"claim": "Measured (rather than expected) time saved per meeting post-launch", "source": "needs_validation"},
+                        {"claim": "Number of engineers/designers on the team", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "0->1 product ownership: discovery through delivery",
-                        "AI product management in a regulated environment",
-                        "Cross-functional leadership across Legal, Risk, Compliance and Engineering",
-                        "Enterprise rollout at scale",
+                        {"claim": "0->1 product ownership from discovery through delivery", "source": "supported_inference"},
+                        {"claim": "AI product management in a regulated environment", "source": "supported_inference"},
+                        {"claim": "Cross-functional leadership across Legal, Risk, Compliance and Engineering", "source": "supported_inference"},
+                        {"claim": "Enterprise rollout at scale", "source": "supported_inference"},
                     ],
                     "skills": [
                         "AI product management", "LLMs", "user research", "regulated AI",
                         "compliance", "product discovery", "prompt/product design",
-                        "enterprise rollout", "stakeholder management",
-                        "human workflow automation",
+                        "enterprise rollout", "stakeholder management", "human workflow automation",
                     ],
                     "technologies": ["LLMs"],
-                    "keywords": [
-                        "meeting summarization", "financial advisors", "compliance",
-                        "consent", "redaction", "enterprise AI", "rollout",
-                    ],
+                    "keywords": ["meeting summarization", "financial advisors", "compliance",
+                                 "consent", "redaction", "enterprise AI", "rollout"],
                 },
                 {
                     "name": "LLM evaluation framework",
+                    "story_id": "B",
+                    "primary_strengths": [
+                        "eval design", "defining correctness", "LLM-as-judge",
+                        "rubric design", "prompt iteration", "quality thresholds",
+                    ],
                     "problem": (
                         "A meeting-summary product cannot be judged on whether output "
                         "sounds good. It has to meet factual, compliance, quality and "
@@ -138,101 +189,119 @@ EXPERIENCE_BANK = {
                         "Derived quality standards from advisor expectations rather than assuming them",
                         "Ran iterative prompt refinement against the evaluation set",
                     ],
-                    "results": [
-                        "Approximately 80% first-run pass rate",
-                    ],
+                    "results": ["Approximately 80% first-run pass rate"],
                     "metrics": [
-                        "36 evaluation scenarios across 12 criteria",
-                        "~80% first-run pass rate",
+                        {"claim": "36 evaluation scenarios", "type": "verified_metric", "source": "candidate_provided"},
+                        {"claim": "12 evaluation criteria including factual accuracy, compliance and tone",
+                         "type": "verified_metric", "source": "candidate_provided"},
+                        {"claim": "~80% first-run pass rate", "type": "approximate_supported_metric",
+                         "source": "candidate_provided"},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Pass-rate improvement from first version of the rubric to current",
-                        "Reduction in advisor-reported summary corrections",
+                        {"claim": "Pass-rate improvement from the first rubric version to current", "source": "needs_validation"},
+                        {"claim": "Reduction in advisor-reported summary corrections", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "The hard part was not improving a prompt — it was defining what "
-                        "'correct' meant and turning subjective advisor expectations into "
-                        "repeatable evaluation criteria",
-                        "AI quality and reliability ownership",
+                        {"claim": "The hard part was not improving a prompt — it was defining what 'correct' meant and turning subjective advisor expectations into repeatable evaluation criteria",
+                         "source": "supported_inference"},
+                        {"claim": "Ownership of AI quality and reliability", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "evals", "LLM-as-judge", "AI quality", "model evaluation",
-                        "prompt iteration", "rubric design", "failure analysis",
-                        "regulated AI", "product metrics",
-                    ],
+                    "skills": ["evals", "LLM-as-judge", "AI quality", "model evaluation",
+                               "prompt iteration", "rubric design", "failure analysis",
+                               "regulated AI", "product metrics"],
                     "technologies": ["LLMs", "LLM-as-judge"],
-                    "keywords": [
-                        "evaluation", "eval harness", "rubric", "hard-fail thresholds",
-                        "factual accuracy", "model quality",
-                    ],
+                    "keywords": ["evaluation", "eval harness", "rubric", "hard-fail thresholds",
+                                 "factual accuracy", "model quality"],
                 },
                 {
                     "name": "AI feedback classification (LLM + RAG)",
+                    "story_id": "C",
+                    "primary_strengths": [
+                        "LLM + RAG", "replacing poor legacy ML", "operational automation",
+                        "human-in-the-loop thinking", "measurable efficiency",
+                    ],
                     "problem": (
-                        "An existing machine-learning classification system ran at "
-                        "roughly 30-60% error rates and required significant manual triage "
-                        "of approximately 400-500 advisor feedback submissions per month."
+                        "An existing machine-learning classification system ran at roughly "
+                        "30-60% error rates and required significant manual triage of "
+                        "approximately 400-500 advisor feedback submissions per month."
                     ),
                     "actions": [
                         "Reframed the problem rather than treating it as 'improve the model'",
                         "Established which categories actually mattered and what correct classification meant",
                         "Analyzed where the existing system failed and how humans reviewed errors",
-                        "Replaced/redesigned the approach using an LLM + RAG pipeline",
+                        "Replaced the approach with an LLM + RAG pipeline",
                         "Connected model performance to operational time saved",
                     ],
-                    "results": [
-                        "Manual triage fell from approximately 50 hours/month to approximately 10 hours/month",
-                    ],
+                    "results": ["Manual triage fell from approximately 50 hours/month to approximately 10 hours/month"],
                     "metrics": [
-                        "Legacy system error rate ~30-60%",
-                        "~400-500 advisor feedback submissions processed per month",
-                        "Manual triage ~50 hours/month -> ~10 hours/month (~80% reduction)",
+                        {"claim": "legacy system error rate ~30-60%", "type": "approximate_supported_metric",
+                         "source": "candidate_provided"},
+                        {"claim": "~400-500 advisor feedback submissions processed per month",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "manual triage reduced from ~50 hours/month to ~10 hours/month",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "~80% reduction in manual triage", "type": "approximate_supported_metric",
+                         "source": "candidate_provided",
+                         "caveat": "Same measurement as the 50->10 hours figure. Use one or the other, not both."},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Post-migration classification accuracy of the LLM + RAG pipeline",
-                        "Dollar value of the operational hours recovered",
+                        {"claim": "Post-migration classification accuracy of the LLM + RAG pipeline", "source": "needs_validation"},
+                        {"claim": "Dollar value of the operational hours recovered", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "Recognizing the problem was taxonomy and definition, not model quality",
-                        "Human-in-the-loop system design",
-                        "Translating technical work into operational business impact",
+                        {"claim": "Recognized the problem was taxonomy and definition, not model quality", "source": "supported_inference"},
+                        {"claim": "Human-in-the-loop system design", "source": "supported_inference"},
+                        {"claim": "Translating technical work into operational business impact", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "LLMs", "RAG", "classification", "workflow automation",
-                        "AI evaluation", "operations", "human-in-the-loop", "ambiguity",
-                        "taxonomy design", "measurable productivity",
-                    ],
+                    "skills": ["LLMs", "RAG", "classification", "workflow automation", "AI evaluation",
+                               "operations", "human-in-the-loop", "ambiguity", "taxonomy design",
+                               "measurable productivity"],
                     "technologies": ["LLMs", "RAG"],
-                    "keywords": [
-                        "classification", "triage", "legacy ML replacement", "RAG",
-                        "operational leverage",
-                    ],
+                    "keywords": ["classification", "triage", "legacy ML replacement", "RAG", "operational leverage"],
                 },
             ],
         },
+
         {
             "company": "Axial",
             "title": "Product Manager",
-            "title_history": "Associate Product Manager initially, later Product Manager",
             "dates": "October 2022 - November 2025",
+            "title_history": [
+                {"title": "Associate Product Manager", "dates": "October 2022 - December 2023",
+                 "source": "candidate_provided"},
+                {"title": "Product Manager", "dates": "January 2024 - November 2025",
+                 "source": "candidate_provided"},
+            ],
+            "title_note": (
+                "May be compressed to a single 'Product Manager, October 2022 - November 2025' "
+                "entry when space requires. The promotion is real and must never be "
+                "misstated if shown."
+            ),
             "location": "New York",
             "domain": "B2B M&A marketplace / fintech / capital markets",
             "summary": (
                 "Owned marketplace and workflow surfaces across a three-sided market of "
-                "buyers, sellers and advisors/intermediaries: deal discovery, onboarding, "
-                "partner supply, documents, notifications, analytics, mobile, AI-generated "
-                "content and down-funnel transaction workflows. This is the role that "
-                "demonstrates shipping speed and volume."
+                "buyers, sellers and advisors/intermediaries. This is the role that "
+                "demonstrates shipping speed and breadth."
             ),
+            # Higher-level themes so Axial reads as a coherent story, not a feature list.
+            "narrative_themes": [
+                "multi-sided B2B marketplace",
+                "end-to-end PM ownership",
+                "marketplace liquidity and supply",
+                "transaction funnel optimization",
+                "workflow automation",
+                "customer-facing shipping velocity",
+                "API / platform work",
+                "data-driven iteration",
+                "early generative-AI product work",
+            ],
             "projects": [
                 {
                     "name": "Partner / supply API integrations (Transworld, Sunbelt)",
-                    "problem": (
-                        "Important deal supply arrived through partner workflows that "
-                        "relied on manual and legacy ingestion."
-                    ),
+                    "problem": "Important deal supply arrived through partner workflows that relied on manual and legacy ingestion.",
                     "actions": [
                         "Shipped API integrations with Axial's two largest broker partners, Transworld and Sunbelt",
                         "Automated ingestion that had previously been manual",
@@ -243,25 +312,24 @@ EXPERIENCE_BANK = {
                         "Eliminated approximately 10+ hours/week of manual effort",
                     ],
                     "metrics": [
-                        "API integrations became responsible for 60%+ of incoming deal flow",
-                        "~10+ hours/week of manual effort eliminated",
-                        "Partner/supply integrations represented roughly one-third of closures in prior analysis",
+                        {"claim": "API integrations became responsible for more than 60% of incoming deal flow",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "~10+ hours/week of manual effort eliminated",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "partner/supply integrations represented roughly one-third of closures in prior analysis",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Deal volume increase attributable to the integrations",
-                        "Time-to-list improvement for partner-sourced deals",
+                        {"claim": "Deal volume increase attributable to the integrations", "source": "needs_validation"},
+                        {"claim": "Time-to-list improvement for partner-sourced deals", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "Marketplace supply and liquidity ownership",
-                        "Technical/API product management",
-                        "Multi-sided marketplace work",
+                        {"claim": "Marketplace supply and liquidity ownership", "source": "supported_inference"},
+                        {"claim": "Technical / API product management", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "APIs", "integrations", "marketplace liquidity", "supply",
-                        "B2B SaaS", "partner products", "technical PM",
-                        "workflow automation", "GTM coordination",
-                    ],
+                    "skills": ["APIs", "integrations", "marketplace liquidity", "supply", "B2B SaaS",
+                               "partner products", "technical PM", "workflow automation", "GTM coordination"],
                     "technologies": ["REST APIs"],
                     "keywords": ["API integration", "partner supply", "deal flow", "ingestion"],
                 },
@@ -272,95 +340,78 @@ EXPERIENCE_BANK = {
                         "Led a responsive redesign of deal discovery, navigation and mobile workflows",
                         "Worked across approximately 2 designers and 7 engineers",
                     ],
-                    "results": [
-                        "Substantial increase in mobile engagement at launch, with sustained lift afterwards",
+                    "results": ["Substantial increase in mobile engagement at launch, with sustained lift afterwards"],
+                    "metrics": [
+                        {"claim": "worked across ~2 designers and ~7 engineers",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
                     ],
-                    "metrics": [],
-                    # THREE numbers from THREE different analyses. Use exactly one.
+                    # THREE SEPARATE MEASUREMENTS. Choose one. Never combine.
                     "metric_variants": [
-                        {
-                            "claim": "~+127% mobile engagement/usage at launch",
-                            "basis": "launch analysis",
-                            "use_when": "the role rewards launch impact and visible step-changes",
-                        },
-                        {
-                            "claim": "~+15% sustained mobile usage",
-                            "basis": "longer-term analysis",
-                            "use_when": "the role rewards durable outcomes over launch spikes",
-                        },
-                        {
-                            "claim": "~18% improvement in mobile buyer retention",
-                            "basis": "current resume framing; retention definition",
-                            "use_when": "the role is retention- or engagement-metric oriented",
-                        },
+                        {"claim": "~+127% mobile usage/engagement at launch",
+                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                         "basis": "launch measurement",
+                         "use_when": "the role rewards launch impact and visible step-changes"},
+                        {"claim": "~15% sustained mobile usage lift",
+                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                         "basis": "longer-term measurement",
+                         "use_when": "the role rewards durable outcomes over launch spikes"},
+                        {"claim": "~18% mobile buyer retention improvement",
+                         "type": "approximate_supported_metric", "source": "verified_resume",
+                         "basis": "retention measurement, as stated on the current resume",
+                         "use_when": "the role is retention-oriented"},
                     ],
                     "metric_warning": (
-                        "These three come from different analyses with different metric "
-                        "definitions. Use exactly ONE per bullet. Never combine them, "
-                        "never sum them, never present two as if they measure the same thing."
+                        "These are three separate measurements of the same project. Use exactly "
+                        "ONE per bullet. Never combine them, never sum them, never present two "
+                        "as if they measure the same thing."
                     ),
                     "possible_metric_to_validate": [
-                        "Which of the three definitions Sofia most wants to defend in interviews",
+                        {"claim": "Which of the three definitions Sofia most wants to defend in interviews", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "End-to-end PM ownership of a redesign",
-                        "Cross-functional leadership across design and engineering",
+                        {"claim": "End-to-end PM ownership of a redesign", "source": "supported_inference"},
+                        {"claim": "Cross-functional leadership across design and engineering", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "mobile", "product redesign", "UX", "discovery", "analytics",
-                        "cross-functional leadership", "marketplace", "engagement",
-                        "retention",
-                    ],
+                    "skills": ["mobile", "product redesign", "UX", "discovery", "analytics",
+                               "cross-functional leadership", "marketplace", "engagement", "retention"],
                     "technologies": [],
                     "keywords": ["mobile", "responsive", "deal discovery", "navigation"],
                 },
                 {
                     "name": "NDA / CIM confidential document workflows",
-                    "problem": (
-                        "M&A marketplace participants need to share sensitive information "
-                        "only after the appropriate confidentiality steps."
-                    ),
+                    "problem": "M&A marketplace participants need to share sensitive information only after the appropriate confidentiality steps.",
                     "actions": [
                         "Built NDA workflow and CIM/document sharing",
                         "Shipped multi-document upload and rule-based distribution",
                         "Automated the confidentiality workflow",
                         "Worked on watermarking and controlled document handling in related iterations",
                     ],
-                    "results": [
-                        "7-day CIM sharing improved from approximately 16% to 37%",
-                    ],
+                    "results": ["7-day CIM sharing improved from approximately 16% to 37%"],
                     "metrics": [
-                        "7-day CIM sharing improved from ~16% to ~37%",
+                        {"claim": "7-day CIM sharing improved from ~16% to ~37%",
+                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                         "note": "The strongest version for transaction workflow, funnel or conversion roles."},
                     ],
                     "metric_variants": [
-                        {
-                            "claim": "7-day CIM sharing improved from ~16% to ~37%",
-                            "basis": "funnel conversion measurement",
-                            "use_when": "transaction workflow, funnel or conversion roles — the strongest version",
-                        },
-                        {
-                            "claim": "~16% improvement in document access rate",
-                            "basis": "current resume framing; likely a different measurement",
-                            "use_when": "only if Sofia confirms which measurement this is",
-                        },
+                        {"claim": "~16% improvement in document access rate",
+                         "type": "approximate_supported_metric", "source": "verified_resume",
+                         "basis": "current resume framing; may be a different measurement entirely",
+                         "use_when": "only after Sofia confirms what this measures"},
                     ],
                     "metric_warning": (
-                        "The 16%->37% figure and the '~16% document access rate' figure may "
-                        "describe different measurements. Do not combine them and do not "
-                        "present the second without validation."
+                        "The 16%->37% figure and the '~16% document access rate' figure may describe "
+                        "different measurements. Never combine them and never present both."
                     ),
                     "possible_metric_to_validate": [
-                        "Whether the '~16% document access rate' is a distinct metric or a restatement",
-                        "Downstream deal-progression impact of faster CIM sharing",
+                        {"claim": "Whether the '~16% document access rate' is distinct from the 16%->37% figure or a restatement", "source": "needs_validation"},
+                        {"claim": "Downstream deal-progression impact of faster CIM sharing", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "Transaction workflow and funnel conversion ownership",
-                        "Trust and permissioning design in a regulated-adjacent context",
+                        {"claim": "Transaction workflow and funnel conversion ownership", "source": "supported_inference"},
+                        {"claim": "Trust and permissioning design in a regulated-adjacent context", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "workflow design", "fintech", "M&A", "documents", "permissioning",
-                        "funnel conversion", "automation", "trust",
-                    ],
+                    "skills": ["workflow design", "fintech", "M&A", "documents", "permissioning",
+                               "funnel conversion", "automation", "trust"],
                     "technologies": ["e-signature workflows"],
                     "keywords": ["NDA", "CIM", "confidentiality", "document sharing", "watermarking"],
                 },
@@ -372,25 +423,22 @@ EXPERIENCE_BANK = {
                         "Resolved email threading issues",
                         "Documented the notification architecture",
                     ],
-                    "results": [
-                        "Improved reliability and maintainability; fewer support tickets",
-                    ],
+                    "results": ["Improved reliability and maintainability; fewer support tickets"],
                     "metrics": [
-                        "~15 email notification types migrated to Courier",
-                        "Email-related support tickets reduced ~44%",
+                        {"claim": "~15 email notification types migrated to Courier",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "email-related support tickets reduced ~44%",
+                         "type": "approximate_supported_metric", "source": "candidate_provided"},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Deliverability or open-rate change after the migration",
+                        {"claim": "Deliverability or open-rate change after the migration", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "Platform/infrastructure product ownership",
-                        "Lifecycle engagement surface",
+                        {"claim": "Platform / infrastructure product ownership", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "infrastructure product", "notifications", "platform", "migration",
-                        "customer support reduction", "lifecycle engagement",
-                    ],
+                    "skills": ["infrastructure product", "notifications", "platform", "migration",
+                               "customer support reduction", "lifecycle engagement"],
                     "technologies": ["Courier"],
                     "keywords": ["notifications", "email", "migration", "infrastructure"],
                 },
@@ -400,29 +448,26 @@ EXPERIENCE_BANK = {
                     "actions": [
                         "Launched AI-written/AI-assisted deal headlines in a customer-facing marketplace",
                         "Built QA and rubric-based audits covering factuality and salience",
-                        "Designed guardrails with fallback to the original content when model quality was uncertain",
+                        "Designed guardrails with fallback to original content when model quality was uncertain",
                     ],
-                    "results": [
-                        "Approximately +15% buyer engagement",
-                    ],
+                    "results": ["Approximately +15% buyer engagement"],
                     "metrics": [
-                        "~+15% buyer engagement",
+                        {"claim": "~+15% buyer engagement", "type": "approximate_supported_metric",
+                         "source": "candidate_provided"},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Share of listings where the AI headline was kept over the original",
-                        "Rubric audit pass rate",
+                        {"claim": "Share of listings where the AI headline was kept over the original", "source": "needs_validation"},
+                        {"claim": "Rubric audit pass rate", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "Shipping customer-facing generative AI before the JPM AI work",
-                        "The product optimized for safe improvement rather than generation rate: "
-                        "when output quality was uncertain, preserve the original copy",
-                        "Evaluation and guardrail design",
+                        {"claim": "Shipped customer-facing generative AI before the JPM AI work", "source": "supported_inference"},
+                        {"claim": "The product optimized for safe improvement rather than generation rate: when output quality was uncertain, preserve the original copy",
+                         "source": "supported_inference"},
+                        {"claim": "Evaluation and guardrail design", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "generative AI", "evaluation", "guardrails", "marketplace",
-                        "content generation", "buyer engagement",
-                    ],
+                    "skills": ["generative AI", "evaluation", "guardrails", "marketplace",
+                               "content generation", "buyer engagement"],
                     "technologies": ["LLMs"],
                     "keywords": ["generative AI", "guardrails", "fallback", "content quality"],
                 },
@@ -437,12 +482,12 @@ EXPERIENCE_BANK = {
                     "metrics": [],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Number of shipped decisions attributable to the instrumentation",
+                        {"claim": "Number of shipped decisions attributable to the instrumentation", "source": "needs_validation"},
                     ],
-                    "framing": ["Data-informed product practice", "Quantitative and qualitative behavior analysis"],
-                    "skills": [
-                        "product analytics", "instrumentation", "roadmap prioritization",
+                    "framing": [
+                        {"claim": "Data-driven iteration as a working practice, not a one-off", "source": "supported_inference"},
                     ],
+                    "skills": ["product analytics", "instrumentation", "roadmap prioritization"],
                     "technologies": ["GA4", "FullStory"],
                     "keywords": ["analytics", "instrumentation", "behavioral data"],
                 },
@@ -452,35 +497,33 @@ EXPERIENCE_BANK = {
                     "actions": ["Built down-funnel and transaction reporting"],
                     "results": ["Increased visibility into down-funnel and LOI activity"],
                     "metrics": [
-                        "Down-funnel reporting activity ~+238% YoY",
-                        "LOI-related activity ~+18% MoM",
+                        {"claim": "down-funnel reporting activity ~+238% year over year",
+                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                         "caveat": "Always keep the YoY timeframe attached."},
+                        {"claim": "LOI-related activity ~+18% month over month",
+                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                         "caveat": "Always keep the MoM timeframe attached."},
                     ],
-                    "metric_warning": (
-                        "Keep the original timeframe with each number: YoY for the 238%, "
-                        "MoM for the 18%. Do not restate either without its timeframe."
-                    ),
+                    "metric_warning": "Never restate either number without its original timeframe.",
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Whether the +238% reflects reporting coverage or genuine activity growth",
+                        {"claim": "Whether the +238% reflects reporting coverage or genuine activity growth", "source": "needs_validation"},
                     ],
-                    "framing": ["Marketplace funnel and transaction analytics"],
+                    "framing": [
+                        {"claim": "Marketplace funnel and transaction analytics", "source": "supported_inference"},
+                    ],
                     "skills": ["analytics", "B2B SaaS funnels", "transaction products"],
                     "technologies": [],
                     "keywords": ["down-funnel", "LOI", "transaction reporting"],
                 },
             ],
             "additional_themes": [
-                "onboarding",
-                "buyer/seller marketplace matching",
-                "anonymized matching",
-                "NDA e-sign / confidentiality workflows",
-                "CIM watermarking",
-                "buyside digest",
-                "deal discovery",
-                "transaction funnel",
-                "customer feedback and behavior analysis",
+                "onboarding", "buyer/seller marketplace matching", "anonymized matching",
+                "NDA e-sign / confidentiality workflows", "CIM watermarking", "buyside digest",
+                "deal discovery", "transaction funnel", "customer feedback and behavior analysis",
             ],
         },
+
         {
             "company": "Confluent",
             "title": "Associate Consulting Engineer",
@@ -489,18 +532,29 @@ EXPERIENCE_BANK = {
             "domain": "Enterprise data infrastructure / event streaming",
             "summary": (
                 "Technical consulting and engineering for Fortune 500 banking and "
-                "insurance clients on Apache Kafka and event-streaming systems. This "
-                "role is the reason Sofia should not be framed as a non-technical PM."
+                "insurance clients on Apache Kafka and event-streaming systems."
+            ),
+            "positioning": (
+                "This role carries no metrics and none should be manufactured for it. "
+                "Its value is qualitative: a genuine technical foundation, enterprise "
+                "customers, Kafka and event-driven architecture, infrastructure, "
+                "translating technical requirements into customer solutions, regulated "
+                "banking and insurance exposure, and the ability to hold a conversation "
+                "with deeply technical engineers and customers. "
+                "Compress it on general PM resumes. Make it prominent — expanded, near "
+                "the top — for technical PM, AI infrastructure, platform, forward-deployed "
+                "and developer-product roles. It is the reason Sofia is not a "
+                "non-technical PM."
             ),
             "projects": [
                 {
                     "name": "Enterprise Kafka adoption and modernization",
                     "problem": (
-                        "Fortune 500 banking and insurance organizations needed to "
-                        "modernize toward real-time, event-driven data infrastructure."
+                        "Fortune 500 banking and insurance organizations needed to modernize "
+                        "toward real-time, event-driven data infrastructure."
                     ),
                     "actions": [
-                        "Helped clients design Kafka adoption strategies",
+                        "Helped Fortune 500 banking and insurance clients design Kafka adoption strategies",
                         "Worked on multi-year modernization approaches",
                         "Addressed security and compliance requirements",
                         "Translated technical systems into enterprise implementation plans",
@@ -511,57 +565,64 @@ EXPERIENCE_BANK = {
                     "metrics": [],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
-                        "Number of enterprise clients advised",
-                        "Scale of any specific deployment (throughput, cluster size)",
-                        "Named industries or deal sizes that can be disclosed",
+                        {"claim": "Number of enterprise clients advised", "source": "needs_validation"},
+                        {"claim": "Scale of any specific deployment (throughput, cluster size)", "source": "needs_validation"},
+                        {"claim": "Named industries or deal sizes that can be disclosed", "source": "needs_validation"},
                     ],
                     "framing": [
-                        "Customer-embedded / forward-deployed technical work",
-                        "Credible technical foundation in APIs, streaming data, infrastructure and enterprise architecture",
-                        "Direct collaboration with engineering teams",
+                        {"claim": "Customer-embedded / forward-deployed technical work", "source": "supported_inference"},
+                        {"claim": "Credible technical foundation in APIs, streaming data, infrastructure and enterprise architecture", "source": "supported_inference"},
+                        {"claim": "Direct collaboration with deeply technical engineers and customers", "source": "supported_inference"},
+                        {"claim": "Regulated-industry exposure in banking and insurance", "source": "supported_inference"},
                     ],
-                    "skills": [
-                        "Apache Kafka", "event streaming", "distributed systems",
-                        "enterprise architecture", "technical consulting", "security and compliance",
-                        "client communication",
-                    ],
+                    "skills": ["Apache Kafka", "event streaming", "distributed systems",
+                               "enterprise architecture", "technical consulting",
+                               "security and compliance", "client communication"],
                     "technologies": ["Apache Kafka", "event streaming", "distributed/real-time data systems"],
-                    "keywords": [
-                        "Kafka", "event-driven", "real-time data", "enterprise", "modernization",
-                        "forward deployed",
-                    ],
+                    "keywords": ["Kafka", "event-driven", "real-time data", "enterprise",
+                                 "modernization", "forward deployed"],
                 },
             ],
         },
     ],
 
     # -----------------------------------------------------------------------
-    # Independent work — real, but do not inflate to production scale
+    # Personal / builder projects. Real work, no commercial scale.
     # -----------------------------------------------------------------------
     "personal_projects": [
         {
             "name": "AI Daily Brief",
-            "type": "Personal AI product / builder project",
+            "type": "Personal / builder project",
+            "label_rule": (
+                "Always label as a personal project. Never imply it was a commercial "
+                "product, had external users, or ran at production scale."
+            ),
             "problem": "Wanted a personalized intelligence and content briefing workflow.",
             "actions": [
                 "Built a pipeline covering podcast ingestion, transcription and retrieval",
                 "Added web context and AI-generated summaries",
-                "Added background functions/automation with human review",
+                "Added background functions and automation with human review",
             ],
             "results": ["A working personal briefing workflow"],
             "metrics": [],
-            "scale_caveat": (
-                "Primarily a personal project. Do not describe it as production, "
-                "do not imply users beyond Sofia, do not invent scale."
-            ),
-            "framing": ["Hands-on AI building", "RAG and retrieval thinking", "Pipeline and workflow design"],
+            "possible_metric_to_validate": [
+                {"claim": "How long it has run and whether it is used daily", "source": "needs_validation"},
+            ],
+            "use_as_evidence_of": [
+                "hands-on experimentation", "RAG / retrieval", "pipelines",
+                "LLM APIs", "workflow design", "building outside formal job responsibilities",
+            ],
             "skills": ["RAG", "retrieval", "pipelines", "workflow design", "transcription"],
             "technologies": ["LLMs", "transcription", "retrieval"],
             "keywords": ["RAG", "ingestion", "summarization", "automation"],
         },
         {
-            "name": "Personal Job Opportunity Agent",
-            "type": "Personal learning / AI-agent project",
+            "name": "Job Opportunity Agent",
+            "type": "Personal / builder project",
+            "label_rule": (
+                "Always label as a personal learning project. Never imply users, "
+                "customers or production scale."
+            ),
             "problem": "Wanted to understand agent architecture directly rather than through a framework.",
             "actions": [
                 "Built a Python agent on the Anthropic API with tool use and web search, deliberately without LangChain or CrewAI",
@@ -577,68 +638,50 @@ EXPERIENCE_BANK = {
                 "Refines a follow-up search based on prior results",
             ],
             "metrics": [],
-            "scale_caveat": "A personal learning project. Do not describe it as a shipped product or imply users.",
+            "possible_metric_to_validate": [],
             "lessons": [
                 "Evaluate both outcomes and trajectories",
                 "Tool-use behavior can vary across runs while recommendations stay stable",
                 "Poor fixtures create misleading eval results",
                 "Profile and schema design strongly affect model reasoning",
             ],
-            "framing": [
-                "Agent product thinking",
-                "Eval design and prompt iteration",
-                "State representation, cost and latency awareness",
-                "Building without an agent framework",
+            "use_as_evidence_of": [
+                "agent architecture", "tool calling", "LLM APIs", "evals", "Python",
+                "prompt iteration", "state representation", "cost and latency awareness",
+                "building outside formal job responsibilities",
             ],
-            "skills": [
-                "agent architecture", "tool use", "eval design", "prompt iteration",
-                "state design", "Python",
-            ],
+            "skills": ["agent architecture", "tool use", "eval design", "prompt iteration",
+                       "state design", "Python"],
             "technologies": ["Python", "Anthropic API", "tool use", "web search"],
             "keywords": ["agent", "tool use", "evals", "APPLY/MAYBE/SKIP", "no framework"],
         },
     ],
 
-    # -----------------------------------------------------------------------
     "education": [
         {
             "institution": "Columbia University",
             "credential": "BA, Economics",
             "dates": "2015 - 2019",
+            "source": "candidate_provided",
             "notes": "",
-            "framing": (
-                "Economics plus technical consulting plus product creates business "
-                "intuition, systems thinking, quantitative reasoning and product judgement."
-            ),
         },
     ],
 
-    # -----------------------------------------------------------------------
     "skills": {
-        "product": [
-            "Product management", "AI product management", "customer discovery",
-            "0->1 product development", "workflow design", "marketplace products",
-            "product analytics", "experimentation and measurement",
-            "stakeholder management", "cross-functional execution",
-        ],
-        "ai": [
-            "LLM-powered products", "RAG", "LLM evaluation", "LLM-as-judge",
-            "prompt design and iteration", "rubric design", "AI failure-mode analysis",
-            "human-in-the-loop systems", "guardrail design",
-        ],
-        "technical": [
-            "API integrations", "Apache Kafka", "event streaming", "SQL",
-            "analytics instrumentation", "enterprise technical architecture",
-        ],
+        "product": ["Product management", "AI product management", "customer discovery",
+                    "0->1 product development", "workflow design", "marketplace products",
+                    "product analytics", "experimentation and measurement",
+                    "stakeholder management", "cross-functional execution"],
+        "ai": ["LLM-powered products", "RAG", "LLM evaluation", "LLM-as-judge",
+               "prompt design and iteration", "rubric design", "AI failure-mode analysis",
+               "human-in-the-loop systems", "guardrail design"],
+        "technical": ["API integrations", "Apache Kafka", "event streaming", "SQL",
+                      "analytics instrumentation", "enterprise technical architecture"],
         "tools": ["GA4", "FullStory", "Figma", "Courier", "Python", "Anthropic API"],
-        "domains": [
-            "B2B SaaS", "marketplaces", "fintech / capital markets", "M&A",
-            "enterprise AI", "private wealth",
-        ],
-        "collaboration": [
-            "Legal / Risk / Compliance collaboration", "Design", "Engineering",
-            "Data Science", "Sales", "Operations",
-        ],
+        "domains": ["B2B SaaS", "marketplaces", "fintech / capital markets", "M&A",
+                    "enterprise AI", "private wealth"],
+        "collaboration": ["Legal / Risk / Compliance", "Design", "Engineering",
+                          "Data Science", "Sales", "Operations"],
         "positioning_caveat": (
             "Do not claim expert-level hands-on software engineering. Sofia is "
             "technically fluent with an engineering/consulting foundation, but "
@@ -647,102 +690,65 @@ EXPERIENCE_BANK = {
         ),
     },
 
-    # -----------------------------------------------------------------------
-    "other": [
-        {
-            "item": "Coding bootcamp, around 2020",
-            "use": (
-                "Not a default resume entry. Useful for founder-type applications, "
-                "questions about grit, unconventional paths, or 'tell us something "
-                "not on your resume'."
-            ),
-        },
-        {
-            "item": "Worked/bartended during college",
-            "use": "Not a default resume entry. Same uses as above.",
-        },
-        {
-            "item": "Grew up across New York and Tehran",
-            "use": (
-                "Use selectively — only where international perspective, cross-cultural "
-                "communication, global operations or heterogeneous users genuinely "
-                "matter, or where the application asks for unusual background. Never "
-                "insert gratuitously."
-            ),
-        },
-    ],
-
-    # -----------------------------------------------------------------------
-    # Prepared evidence packages. Each points at projects above; they add no
-    # new facts, they just say which evidence answers which kind of question.
-    # -----------------------------------------------------------------------
     "interview_stories": [
-        {
-            "id": 1,
-            "title": "Ambiguous AI / eval problem",
-            "source": "JPMorgan Chase — LLM evaluation framework",
-            "story": "The hard problem was not 'make the model better'. The first challenge was defining what correct meant.",
-            "use_for": ["ambiguous product problems", "AI evals", "product quality", "0->1 AI", "working without a playbook", "model reliability"],
-        },
-        {
-            "id": 2,
-            "title": "Broken system -> AI redesign",
-            "source": "JPMorgan Chase — AI feedback classification",
-            "story": "A legacy ML system ran at 30-60% errors. Reframed the problem, shipped an LLM + RAG pipeline, cut manual triage ~80%.",
-            "use_for": ["replacing legacy ML", "measurable AI impact", "operational leverage", "human-in-the-loop systems"],
-        },
-        {
-            "id": 3,
-            "title": "User discovery plus regulated shipping",
-            "source": "JPMorgan Chase — AI meeting summarization",
-            "story": "6+ advisor interviews turned into 3 summarization templates, shipped through Legal, Risk and Compliance to ~5,000 advisors.",
-            "use_for": ["customer discovery", "regulated environments", "Legal/Risk/Compliance", "AI trust", "enterprise rollout"],
-        },
-        {
-            "id": 4,
-            "title": "Shipping / marketplace impact",
-            "source": "Axial — mobile product redesign",
-            "story": "Led a responsive redesign across 2 designers and 7 engineers, with a large measured lift at launch.",
-            "use_for": ["end-to-end PM ownership", "cross-functional leadership", "measurable launch results", "customer experience", "mobile"],
-        },
-        {
-            "id": 5,
-            "title": "Technical / platform product",
-            "source": "Axial — partner API integrations, plus Confluent",
-            "story": "Shipped API integrations covering 60%+ of deal flow, on a foundation of Kafka and event-streaming consulting for Fortune 500 clients.",
-            "use_for": ["technical PM", "APIs", "integrations", "platform", "infrastructure", "data"],
-        },
-        {
-            "id": 6,
-            "title": "Workflow / funnel optimization",
-            "source": "Axial — NDA/CIM workflows",
-            "story": "Rebuilt the confidentiality workflow and moved 7-day CIM sharing from ~16% to ~37%.",
-            "use_for": ["funnels", "marketplace transaction workflows", "conversion", "user friction", "operational automation"],
-        },
-        {
-            "id": 7,
-            "title": "Early generative-AI product",
-            "source": "Axial — AI-generated deal headlines",
-            "story": "Shipped customer-facing generative AI with rubric audits and a fallback to original copy when quality was uncertain — optimizing for safe improvement, not generation rate.",
-            "use_for": ["GenAI", "guardrails", "evaluation", "product metrics", "model uncertainty"],
-        },
-        {
-            "id": 8,
-            "title": "Builder / agent story",
-            "source": "Personal Job Opportunity Agent and AI Daily Brief",
-            "story": "Built an agent with tool use and an eval harness from scratch, without a framework, starting from a non-agentic baseline as a control.",
-            "use_for": ["agents", "hands-on AI", "side projects", "building without a framework", "learning quickly", "product and technical fluency"],
-        },
+        {"id": 1, "title": "Ambiguous AI / eval problem",
+         "source": "JPMorgan Chase — LLM evaluation framework",
+         "story": "The hard problem was not 'make the model better'. The first challenge was defining what correct meant.",
+         "use_for": ["ambiguous product problems", "AI evals", "product quality", "0->1 AI",
+                     "working without a playbook", "model reliability"]},
+        {"id": 2, "title": "Broken system -> AI redesign",
+         "source": "JPMorgan Chase — AI feedback classification",
+         "story": "A legacy ML system ran at 30-60% errors. Reframed the problem, shipped an LLM + RAG pipeline, cut manual triage ~80%.",
+         "use_for": ["replacing legacy ML", "measurable AI impact", "operational leverage", "human-in-the-loop systems"]},
+        {"id": 3, "title": "User discovery plus regulated shipping",
+         "source": "JPMorgan Chase — AI meeting summarization",
+         "story": "6+ advisor interviews turned into 3 summarization templates, shipped through Legal, Risk and Compliance to ~5,000 advisors.",
+         "use_for": ["customer discovery", "regulated environments", "Legal/Risk/Compliance", "AI trust", "enterprise rollout"]},
+        {"id": 4, "title": "Shipping / marketplace impact",
+         "source": "Axial — mobile product redesign",
+         "story": "Led a responsive redesign across ~2 designers and ~7 engineers, with a large measured lift at launch.",
+         "use_for": ["end-to-end PM ownership", "cross-functional leadership", "measurable launch results",
+                     "customer experience", "mobile"]},
+        {"id": 5, "title": "Technical / platform product",
+         "source": "Axial — partner API integrations, plus Confluent",
+         "story": "Shipped API integrations covering more than 60% of deal flow, on a foundation of Kafka and event-streaming consulting for Fortune 500 clients.",
+         "use_for": ["technical PM", "APIs", "integrations", "platform", "infrastructure", "data"]},
+        {"id": 6, "title": "Workflow / funnel optimization",
+         "source": "Axial — NDA/CIM workflows",
+         "story": "Rebuilt the confidentiality workflow and moved 7-day CIM sharing from ~16% to ~37%.",
+         "use_for": ["funnels", "marketplace transaction workflows", "conversion", "user friction",
+                     "operational automation"]},
+        {"id": 7, "title": "Early generative-AI product",
+         "source": "Axial — AI-generated deal headlines",
+         "story": "Shipped customer-facing generative AI with rubric audits and a fallback to original copy when quality was uncertain — optimizing for safe improvement, not generation rate.",
+         "use_for": ["GenAI", "guardrails", "evaluation", "product metrics", "model uncertainty"]},
+        {"id": 8, "title": "Builder / agent story",
+         "source": "Personal — Job Opportunity Agent and AI Daily Brief",
+         "story": "Built an agent with tool use and an eval harness from scratch, without a framework, starting from a non-agentic baseline as a control.",
+         "use_for": ["agents", "hands-on AI", "side projects", "building without a framework",
+                     "learning quickly", "product and technical fluency"]},
     ],
 }
 
 
 # ---------------------------------------------------------------------------
-# Placeholder detection — deterministic Python, not a model judgement.
+# Deterministic helpers. Plain Python, no model judgement.
 # ---------------------------------------------------------------------------
 
+USABLE_SOURCES = {"verified_resume", "candidate_provided", "supported_inference"}
+BLOCKED_SOURCE = "needs_validation"
+
+
+def _walk_projects():
+    for role in EXPERIENCE_BANK["roles"]:
+        for project in role["projects"]:
+            yield role["company"], project
+    for project in EXPERIENCE_BANK["personal_projects"]:
+        yield "Personal", project
+
+
 def missing_fields() -> list:
-    """Return the TODO placeholders still left in the bank."""
+    """TODO placeholders still left in the bank."""
     found = []
 
     def walk(node, path):
@@ -760,19 +766,23 @@ def missing_fields() -> list:
 
 
 def is_populated() -> bool:
-    """True when the bank has no TODO placeholders left."""
     return not missing_fields()
 
 
-def unvalidated_metrics() -> list:
-    """Every possible_metric_to_validate in the bank, with its source.
-
-    These must never reach a generated document. Surfacing them here lets Sofia
-    check them and promote the ones that hold into `metrics`.
-    """
+def blocked_claims() -> list:
+    """Every needs_validation claim. These must never reach a document."""
     out = []
-    for role in EXPERIENCE_BANK["roles"]:
-        for project in role["projects"]:
-            for metric in project.get("possible_metric_to_validate", []):
-                out.append((role["company"], project["name"], metric))
+    for company, project in _walk_projects():
+        for entry in project.get("possible_metric_to_validate", []):
+            out.append((company, project["name"], entry["claim"]))
+    return out
+
+
+def usable_metrics() -> list:
+    """Every metric the generator is allowed to state, with its type and source."""
+    out = []
+    for company, project in _walk_projects():
+        for entry in project.get("metrics", []) + project.get("metric_variants", []):
+            if entry.get("source") in USABLE_SOURCES:
+                out.append((company, project["name"], entry["type"], entry["source"], entry["claim"]))
     return out

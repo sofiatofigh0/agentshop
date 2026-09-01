@@ -42,24 +42,38 @@ dates, and you may not imply more seniority than the bank shows. If the job
 asks for something the bank does not support, treat it as a gap and say so
 plainly rather than writing around it.
 
-The bank's fields carry different permissions. Respect them exactly:
+Every claim in the bank carries a `source`. Three are usable:
 
-  metrics       Safe to state as written.
-  framing       Interpretations of the verified work that the candidate has
-                already approved. Safe to use.
-  metric_variants
-                Real numbers from DIFFERENT analyses of the same project. Choose
-                exactly ONE per bullet, guided by its `use_when`. Never combine
-                two, never sum them, never present two as if they measure the
-                same thing. Obey any `metric_warning` on the project.
-  possible_metric_to_validate
-                UNVERIFIED. These are open questions, not achievements. Never
-                put one in a resume, cover letter or strategy document in any
-                form, however hedged.
-  scale_caveat  A restriction on how a project may be described. Obey it.
+  verified_resume     appears on the candidate's existing resume
+  candidate_provided  stated directly by the candidate
+  supported_inference a reading of verified work the candidate has approved
 
-Where a project records years of experience or a seniority note, use the
-bank's wording rather than computing your own."""
+One is NOT usable, ever, in any document, however hedged:
+
+  needs_validation    an open question, not an achievement
+
+Claims also carry a `type` that governs how precisely you may state them:
+
+  verified_metric               state it exactly as written
+  approximate_supported_metric  a real measurement stated loosely. Keep the
+                                approximation language ("~", "approximately",
+                                "roughly", "more than"). Never sharpen it into a
+                                precise figure.
+
+Other fields:
+
+  framing         approved interpretations. Safe to use.
+  metric_variants separate measurements of ONE project. Choose exactly one per
+                  bullet, guided by its `use_when`. Never combine, sum, or
+                  present two as if they measure the same thing.
+  metric_warning / caveat / note / label_rule / scale_caveat / positioning
+                  restrictions on how something may be said. Obey them exactly.
+
+You may improve framing aggressively. You may never manufacture a number.
+
+Use the bank's own wording for tenure and seniority rather than computing your
+own. Personal background never enters a resume by default — only where the
+profile's policy says it creates a genuinely relevant narrative."""
 
 
 def _call(system: str, user: str, max_tokens: int = 8000) -> tuple:
@@ -177,11 +191,17 @@ PARTIALLY SUPPORTED the bank hints at it but the draft goes further
 UNSUPPORTED         the bank does not contain this at all
 
 Treat these as UNSUPPORTED even though the words appear in the bank:
-- any number drawn from `possible_metric_to_validate`
+- anything whose `source` is `needs_validation`
+- an `approximate_supported_metric` restated as a precise figure, with its "~",
+  "approximately" or "roughly" dropped
 - two `metric_variants` from one project combined, summed, or used as if they
   measure the same thing
-- any claim that breaks a project's `metric_warning` or `scale_caveat`
+- any claim that breaks a `metric_warning`, `caveat`, `label_rule` or
+  `scale_caveat`
 - a metric restated without the timeframe the bank gives it
+- an expected value presented as a measured outcome
+- a personal project described as commercial, production-scale, or as having users
+- any tenure claim that does not match the bank's own wording
 
 Output a markdown table: | Claim | Verdict | Basis in the bank |
 

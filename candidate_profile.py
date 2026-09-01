@@ -1,27 +1,26 @@
 """
-What Sofia wants — preferences, goals, constraints, voice and tailoring rules.
+What Sofia wants — preferences, goals, voice and tailoring rules.
 
 Kept deliberately separate from experience_bank.py:
 
-    candidate_profile.py  decides APPLY / MAYBE / SKIP, and governs how things
-                          are written. It is preference, not evidence.
-    experience_bank.py    is the only thing a resume or cover letter may draw
-                          factual claims from.
+    candidate_profile.py  decides APPLY / MAYBE / SKIP and governs how things
+                          are written. Preference, not evidence.
+    experience_bank.py    the only source of factual claims about her work.
 
-Nothing in this file may become a factual claim about Sofia's work history.
+Nothing here may become a factual claim about Sofia's work history.
 
-Two key names are load-bearing: `hard_constraints` and `strong_preferences` are
+Load-bearing key names: `hard_constraints` and `strong_preferences` are
 referenced by name in agent.py's system prompt, which weighs them differently.
 Renaming them silently changes how recommendations are made.
 """
 
 CANDIDATE_PROFILE = {
     "name": "Sofia Tofigh",
-    "location": "New York City",
+    "location": "New York, NY",
 
     "positioning": (
         "AI Product Manager / Senior Product Manager with an unusually technical "
-        "foundation, building LLM-powered products, evaluation systems, workflow "
+        "foundation. Builds LLM-powered products, evaluation systems, workflow "
         "automation, API integrations, marketplace products and data-informed user "
         "experiences."
     ),
@@ -32,46 +31,123 @@ CANDIDATE_PROFILE = {
         "between users, business problems, data, AI systems and engineering."
     ),
 
-    "years_product_experience": (
-        "Approximately 4 years of direct PM experience as of 2026, plus prior technical "
-        "consulting/engineering. Never write '6 years of PM experience'."
-    ),
+    # -----------------------------------------------------------------------
+    # Tenure. Never inflate to satisfy a job description.
+    # -----------------------------------------------------------------------
+    "experience_length": {
+        "direct_pm": "approximately 4 years of direct product management experience",
+        "total_technical_and_product": (
+            "approximately 5+ years total technical and product experience when "
+            "Confluent is relevant to the role"
+        ),
+        "approved_phrasing": (
+            "Product leader with ~4 years of PM experience and an earlier technical "
+            "consulting engineering foundation."
+        ),
+        "never_write": (
+            "Do not write '6 years of product management experience', and do not "
+            "stretch tenure to match a job description's stated minimum."
+        ),
+    },
 
-    "domains_worked": [
-        "technical consulting / engineering",
-        "B2B SaaS",
-        "marketplaces",
-        "fintech / capital markets",
-        "enterprise AI",
-        "LLM product development",
+    # -----------------------------------------------------------------------
+    # HARD CONSTRAINTS — absolute dealbreakers only.
+    #
+    # Empty by design, not by omission. Nothing in Sofia's source material is
+    # stated as absolute: location is explicitly "a factor to investigate and
+    # weigh", not a refusal. An empty list means no single factor can force a
+    # SKIP on its own, and every role is weighed holistically.
+    #
+    # Only add an entry here if Sofia states it as non-negotiable.
+    # -----------------------------------------------------------------------
+    "hard_constraints": [],
+
+    # -----------------------------------------------------------------------
+    # STRONG PREFERENCES — what she is actively looking for. Positive signals.
+    # Several violations together can justify SKIP; one on its own cannot.
+    # -----------------------------------------------------------------------
+    "strong_preferences": [
+        "Fast-moving environment with meaningful ownership",
+        "Direct access to users",
+        "Strong engineering partnership and the ability to ship and iterate",
+        "Measurable product outcomes and technically substantive work",
+        "AI-native or genuinely technical product problems",
+        "Companies where product is central rather than a support function",
+        "Roles where ambiguity is a feature rather than an organizational failure",
     ],
 
-    "product_strengths": [
-        "ambiguous 0->1 product problems",
-        "translating messy user problems into product requirements",
-        "customer discovery",
-        "workflow design",
-        "marketplace products",
-        "operational automation",
-        "AI product development",
-        "product analytics",
-        "experimentation and measurement",
-        "API / integration products",
-        "cross-functional execution across Legal, Risk, Compliance, Design, Engineering, Data Science, Sales and Operations",
-        "connecting technical and model performance to actual product outcomes",
+    # -----------------------------------------------------------------------
+    # LOCATION — a factor to weigh, never an automatic SKIP.
+    # -----------------------------------------------------------------------
+    "location_policy": {
+        "based_in": "New York, NY",
+        "preferred": "New York",
+        "also_attractive": "Remote",
+        "relocation": (
+            "Do NOT assume Sofia categorically refuses relocation. Treat a relocation "
+            "requirement as a factor to investigate and weigh — note it, ask what would "
+            "make it worth it, and let the rest of the opportunity carry the decision. "
+            "A relocation requirement alone is not grounds for SKIP."
+        ),
+        "worth_investigating": [
+            "Whether the company will consider remote or an NYC arrangement",
+            "Whether relocation support is offered",
+            "How much onsite presence is genuinely required",
+        ],
+    },
+
+    # -----------------------------------------------------------------------
+    # ROLE PREFERENCES — what she is and is not targeting.
+    # -----------------------------------------------------------------------
+    "role_preferences": {
+        "primary_targets": [
+            "AI Product Manager",
+            "Senior Product Manager",
+            "Agent / agentic product roles",
+            "Forward Deployed AI / Product roles",
+            "Technical product roles",
+            "High-ownership startup product roles",
+            "Product Operations roles — selectively, only when they include real product/AI ownership",
+        ],
+        "not_targeting": [
+            "Pure project management",
+            "Purely administrative product operations",
+            "Low-ownership coordination roles",
+            "Roles substantially below her level",
+        ],
+    },
+
+    # -----------------------------------------------------------------------
+    # DIFFERENTIATORS — why she is an unusual candidate rather than a good one.
+    # Use these to decide what leads an application.
+    # -----------------------------------------------------------------------
+    "differentiators": [
+        "Real infrastructure background: Kafka and event-streaming consulting for Fortune 500 banks and insurers, which very few PMs have",
+        "Shipped customer-facing generative AI in a marketplace before most PMs had touched it, with guardrails and a quality fallback rather than a demo",
+        "Has actually built LLM evaluation: rubrics, LLM-as-judge, hard-fail thresholds, and the harder upstream work of defining what correct means",
+        "Replaced a failing legacy ML system with LLM + RAG and measured the result in operational hours, not model metrics",
+        "Owned a genuinely multi-sided marketplace end to end — supply, discovery, documents, funnel, mobile, notifications",
+        "Ships AI agents by hand outside work, without a framework, including an eval harness",
+        "Moves fluently between users, business problems, data, AI systems and engineers rather than specialising in one",
+        "Trilingual, raised across New York and Tehran — use selectively, see personal_background_policy",
     ],
 
-    "desired_role_types": [
-        "Senior Product Manager",
-        "AI Product Manager",
-        "Agent / agentic product roles",
-        "Forward Deployed Product Manager",
-        "Product Operations with significant AI/product ownership",
-        "Founding / early product roles where appropriate",
-        "Marketplace / platform roles",
-        "Technical product roles",
+    # -----------------------------------------------------------------------
+    # POTENTIAL CONCERNS — negative signals to weigh in a recommendation.
+    # Distinct from strong_preferences: these are things to examine in a role,
+    # not things she is seeking.
+    # -----------------------------------------------------------------------
+    "potential_concerns": [
+        "Highly bureaucratic environments",
+        "Roles where the PM has little or no user access",
+        "Vague scope without real ownership",
+        "Roles that are mostly project management",
+        "Companies where 'AI' is superficial positioning rather than a real product capability",
+        "Roles requiring the PM to substitute for an engineering team",
+        "Compensation, seniority or ownership that appears materially below her experience",
     ],
 
+    # -----------------------------------------------------------------------
     "career_goals": [
         "Grow into product leadership / Head of Product",
         "Eventually found a company",
@@ -82,70 +158,43 @@ CANDIDATE_PROFILE = {
     ],
 
     # -----------------------------------------------------------------------
-    # NOTE — REVIEW THIS LIST.
-    # The source material states nothing as an absolute dealbreaker; location is
-    # phrased as "evaluate carefully rather than assuming flexibility", which is
-    # a strong signal, not a refusal. So this list is empty by design rather
-    # than by omission: an empty list means no single factor can justify SKIP on
-    # its own, and everything is weighed holistically.
-    #
-    # If any of these are in fact absolute, move them up from
-    # `strong_preferences` and recommendations will change accordingly:
-    #   "Will not relocate outside New York City"
-    #   "Will not accept compensation or seniority materially below current level"
-    #   "Will not accept a role with no direct user access"
+    # WRITING VOICE — governs cover letters and any prose. Not the resume's
+    # factual content, only its register.
     # -----------------------------------------------------------------------
-    "hard_constraints": [],
-
-    "strong_preferences": [
-        "New York preferred; remote is attractive. Relocation requirements must be examined explicitly, never assumed acceptable",
-        "Fast-moving environment with meaningful ownership",
-        "Direct access to users",
-        "Strong engineering partnership and the ability to ship and iterate",
-        "Measurable product outcomes and technically substantive work",
-        "AI-native or genuinely technical product problems",
-        "Companies where product is central rather than a support function",
-        "Roles where ambiguity is a feature rather than an organizational failure",
-        "Avoids highly bureaucratic environments",
-        "Avoids roles where the PM has little user access",
-        "Avoids vague scope without real ownership",
-        "Avoids roles that are mostly project management",
-        "Avoids companies where 'AI' is superficial positioning rather than a real product capability",
-        "Avoids roles requiring the PM to substitute for an engineering team",
-        "Avoids roles where compensation, seniority or ownership appear materially below her experience",
-    ],
-
-    # -----------------------------------------------------------------------
-    # Voice. Used by the generation prompts, not by the recommendation.
-    # -----------------------------------------------------------------------
-    "voice": {
-        "wanted": [
-            "intelligent", "direct", "slightly conversational", "specific",
-            "evidence-driven", "occasionally philosophical when the question warrants it",
-            "confident without inflated corporate language", "concise",
-            "willing to make an unusual but defensible observation",
+    "writing_voice": {
+        "should_feel": [
+            "intelligent", "specific", "concise", "confident",
+            "slightly unconventional", "human", "thoughtful", "evidence-driven",
+            "capable of making a real observation about the company or industry",
         ],
         "banned_phrases": [
             "I am thrilled to apply",
-            "I am passionate about",
+            "I have always been passionate about",
+            "I believe my skills make me an excellent fit",
+            "I am excited to apply",
             "dynamic team",
             "innovative company",
             "leveraging synergies",
         ],
         "banned_habits": [
-            "generic statements that could apply to 100 companies",
-            "excessive em dashes",
-            "empty praise",
+            "generic enthusiasm",
+            "obvious AI phrasing",
+            "unnecessary em dashes",
+            "lists of adjectives",
+            "corporate jargon",
+            "repeating the job description back",
             "repeating the company's own About page back to them",
-            "sounding corporate or AI-generated",
+            "the generic three-paragraph cover-letter structure",
+            "statements that could apply to a hundred other companies",
         ],
         "cover_letter_shape": (
-            "Two to three strong paragraphs, not a five-paragraph letter. Must contain: "
-            "(1) one genuinely specific reason this company or problem is interesting, "
-            "(2) one or two unusually relevant pieces of Sofia's experience, "
-            "(3) a coherent reason her trajectory leads naturally to this role."
+            "Two to three strong paragraphs. It must contain: (1) one genuinely "
+            "specific reason this company or problem is interesting, (2) one or two "
+            "unusually relevant pieces of Sofia's experience, (3) a coherent reason "
+            "her trajectory leads naturally to this role. It should read as though "
+            "she had an actual reason to write to THIS company."
         ),
-        "cover_letter_questions_to_answer_first": [
+        "questions_to_answer_before_writing": [
             "What is genuinely unusual or interesting about this company?",
             "Why would someone with Sofia's exact trajectory care?",
             "Which one or two experiences create an unusually strong connection?",
@@ -153,7 +202,7 @@ CANDIDATE_PROFILE = {
         ],
         "opening_guidance": (
             "Good openings start from a product observation, an unusual connection "
-            "between Sofia's experience and the company's problem, a tension in the "
+            "between her experience and the company's problem, a tension in the "
             "industry, or why the problem itself is compelling. Never quirky for "
             "novelty. Specific over enthusiastic, evidence over adjectives, point of "
             "view over generic praise."
@@ -178,7 +227,7 @@ CANDIDATE_PROFILE = {
         "no_responsibilities_only_bullets": True,
     },
 
-    # Which evidence leads, by the kind of role. Pointers into the bank.
+    # Which evidence leads, by kind of role. Pointers into the experience bank.
     "emphasis_by_role_family": {
         "ai_or_agent": [
             "JPM AI feedback classification",
@@ -196,14 +245,14 @@ CANDIDATE_PROFILE = {
             "Matching and funnel work",
         ],
         "technical_or_platform": [
-            "Confluent",
+            "Confluent — lead with this, expanded rather than compressed",
             "Axial partner API integrations",
             "Axial notification infrastructure",
             "JPM RAG / AI systems",
             "Analytics and instrumentation work",
         ],
         "forward_deployed": [
-            "Confluent enterprise consulting",
+            "Confluent enterprise consulting — lead with this",
             "JPM advisor discovery",
             "JPM AI iterations",
             "Axial customer and workflow work",
@@ -219,16 +268,16 @@ CANDIDATE_PROFILE = {
     },
 
     "personal_background_policy": (
-        "Sofia grew up across New York and Tehran, completed a coding bootcamp around "
-        "2020, and worked/bartended during college. Use these only where they genuinely "
-        "fit — international perspective, cross-cultural communication, global "
-        "operations, heterogeneous users, founder-type applications, grit questions, "
-        "unconventional-path questions, or 'tell us something not on your resume'. "
-        "Never insert them gratuitously."
+        "Personal background never appears in a resume by default. Use it only where "
+        "it creates a genuinely relevant application narrative: international "
+        "perspective, cross-cultural communication, global operations, heterogeneous "
+        "users, founder-type applications, grit or unconventional-path questions, or "
+        "'tell us something not on your resume'. See personal_background in the "
+        "experience bank for what is available."
     ),
 
     "tailoring_rule": (
         "There is no single best resume. The resume must change meaningfully by role: "
-        "see emphasis_by_role_family."
+        "see emphasis_by_role_family and the role_preferences targets."
     ),
 }
