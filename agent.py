@@ -85,10 +85,22 @@ Rules:
 - Recommendation must be exactly one of: APPLY, MAYBE, SKIP
 - Recommendation is about fit between this candidate and this role, not how
   attractive the role is in the abstract.
-- Weigh the profile's two lists differently. Violating a hard_constraint can
-  justify SKIP on its own. Violating a strong_preference lowers fit but never
-  forces SKIP by itself; several strong_preference violations together can.
-  Otherwise weigh the whole opportunity holistically rather than scanning for
+- The profile's fields carry different weight. Use them as follows:
+    hard_constraints    can independently rule out a role. A violation justifies
+                        SKIP on its own. An empty list means nothing does.
+    strong_preferences  influence fit but are never automatic rejection
+                        criteria. One violation lowers fit; several together can
+                        justify SKIP.
+    potential_concerns  things to investigate or weigh, not to reject on.
+    role_preferences    which kinds of roles are strategically attractive, and
+                        which are not what she is looking for.
+    differentiators     evidence to consider when judging whether she is an
+                        unusually strong fit rather than merely a qualified one.
+    location_policy     New York preferred, remote attractive. Relocation is to
+                        be evaluated, never assumed impossible, and is not on
+                        its own grounds for SKIP.
+    career_goals        whether this role moves her toward the career she wants.
+  Weigh the whole opportunity holistically rather than scanning for
   disqualifiers.
 - Reasoning is two or three sentences explaining that recommendation.
 - What to Emphasize if Applying is the one or two things from this candidate's

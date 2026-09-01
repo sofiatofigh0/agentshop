@@ -34,12 +34,18 @@ projects. If a job requires something absent here, it is a gap — say so.
 # ---------------------------------------------------------------------------
 
 IDENTITY = {
+    # All contact fields below are verified_resume: they appear on Sofia's
+    # current resume and MAY appear in generated resumes and cover letters.
+    # They must NEVER appear in debugging logs, eval output, API trace
+    # summaries, or terminal diagnostics. Nothing in this project prints them.
     "name": "Sofia Tofigh",
     "location": "New York, NY",
     "linkedin": "linkedin.com/in/sofia-tofigh/",
-    "email": "",   # supply from the existing resume; never log
-    "phone": "",   # supply from the existing resume; never log
+    "email": "sofiatofigh0@gmail.com",
+    "phone": "+1 (929) 335-1639",
     "portfolio": "",
+    "contact_source": "verified_resume",
+    "contact_logging_policy": "never log, trace, or print these fields",
     "experience_length": (
         "~4 years direct product management experience; ~5+ years total technical "
         "and product experience including Confluent. Never write '6 years of PM "
@@ -49,6 +55,20 @@ IDENTITY = {
         "Technical consulting/engineering (Confluent) -> marketplace Product Manager "
         "(Axial) -> enterprise AI Product Manager (JPMorgan Chase)."
     ),
+    "resume_summary_claims": {
+        "source": "verified_resume",
+        "claims": [
+            "Over three years of product management experience",
+            "End-to-end ownership across a fintech B2B SaaS marketplace serving the capital markets ecosystem",
+            "Shipped full-stack product transformations that expanded deal-sourcing supply through partner API integrations, improved onboarding, and modernized mobile workflows for M&A teams",
+            "Worked cross-functionally with data science, sales and UX design teams to interpret customer needs, translate user behavior into actionable insights, and refine machine-learning-driven recommendations",
+        ],
+        "conflict": (
+            "The resume says 'over three years'; Sofia has since said ~4 years direct "
+            "PM experience. Use Sofia's ~4 years figure — the resume line is the older "
+            "of the two — but never write '6 years'."
+        ),
+    },
 }
 
 
@@ -99,6 +119,7 @@ EXPERIENCE_BANK = {
     "roles": [
         {
             "company": "JPMorgan Chase",
+            "employment_source": "verified_resume",
             "title": "AI Product Manager, Senior Associate",
             "dates": "March 2026 - Present",
             "team": "Product Accelerator Garage",
@@ -140,13 +161,13 @@ EXPERIENCE_BANK = {
                     ],
                     "metrics": [
                         {"claim": "6+ advisor interviews conducted and translated into product requirements",
-                         "type": "verified_metric", "source": "candidate_provided"},
+                         "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "3 LLM-powered summarization templates",
-                         "type": "verified_metric", "source": "candidate_provided"},
+                         "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "phased rollout targeting ~5,000 advisors",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                         "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "~30 minutes of documentation time saved per meeting (expected, not yet measured)",
-                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                         "type": "approximate_supported_metric", "source": "verified_resume",
                          "caveat": "This is an expected value. Do not present it as a measured outcome."},
                     ],
                     "metric_variants": [],
@@ -191,11 +212,11 @@ EXPERIENCE_BANK = {
                     ],
                     "results": ["Approximately 80% first-run pass rate"],
                     "metrics": [
-                        {"claim": "36 evaluation scenarios", "type": "verified_metric", "source": "candidate_provided"},
+                        {"claim": "36 evaluation scenarios", "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "12 evaluation criteria including factual accuracy, compliance and tone",
-                         "type": "verified_metric", "source": "candidate_provided"},
-                        {"claim": "~80% first-run pass rate", "type": "approximate_supported_metric",
-                         "source": "candidate_provided"},
+                         "type": "verified_metric", "source": "verified_resume"},
+                        {"claim": "~80% first-run pass rate", "type": "verified_metric",
+                         "source": "verified_resume"},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
@@ -235,14 +256,14 @@ EXPERIENCE_BANK = {
                     ],
                     "results": ["Manual triage fell from approximately 50 hours/month to approximately 10 hours/month"],
                     "metrics": [
-                        {"claim": "legacy system error rate ~30-60%", "type": "approximate_supported_metric",
-                         "source": "candidate_provided"},
-                        {"claim": "~400-500 advisor feedback submissions processed per month",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "legacy ML classification tool had 30-60% error rates", "type": "verified_metric",
+                         "source": "verified_resume"},
+                        {"claim": "400-500 monthly advisor feedback submissions categorized",
+                         "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "manual triage reduced from ~50 hours/month to ~10 hours/month",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
-                        {"claim": "~80% reduction in manual triage", "type": "approximate_supported_metric",
-                         "source": "candidate_provided",
+                         "type": "verified_metric", "source": "verified_resume"},
+                        {"claim": "80% reduction in manual triage", "type": "verified_metric",
+                         "source": "verified_resume",
                          "caveat": "Same measurement as the 50->10 hours figure. Use one or the other, not both."},
                     ],
                     "metric_variants": [],
@@ -266,6 +287,7 @@ EXPERIENCE_BANK = {
 
         {
             "company": "Axial",
+            "employment_source": "verified_resume",
             "title": "Product Manager",
             "dates": "October 2022 - November 2025",
             "title_history": [
@@ -274,6 +296,7 @@ EXPERIENCE_BANK = {
                 {"title": "Product Manager", "dates": "January 2024 - November 2025",
                  "source": "candidate_provided"},
             ],
+            "title_history_source": "candidate_provided — the resume supports the overall October 2022 - November 2025 span, not the split",
             "title_note": (
                 "May be compressed to a single 'Product Manager, October 2022 - November 2025' "
                 "entry when space requires. The promotion is real and must never be "
@@ -312,10 +335,11 @@ EXPERIENCE_BANK = {
                         "Eliminated approximately 10+ hours/week of manual effort",
                     ],
                     "metrics": [
-                        {"claim": "API integrations became responsible for more than 60% of incoming deal flow",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
-                        {"claim": "~10+ hours/week of manual effort eliminated",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "API integrations became responsible for 60% of platform deal flow",
+                         "type": "verified_metric", "source": "verified_resume",
+                         "note": "The resume states 60%. Do not restate it as '60%+'."},
+                        {"claim": "10+ hours/week of manual effort eliminated",
+                         "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "partner/supply integrations represented roughly one-third of closures in prior analysis",
                          "type": "approximate_supported_metric", "source": "candidate_provided"},
                     ],
@@ -342,13 +366,13 @@ EXPERIENCE_BANK = {
                     ],
                     "results": ["Substantial increase in mobile engagement at launch, with sustained lift afterwards"],
                     "metrics": [
-                        {"claim": "worked across ~2 designers and ~7 engineers",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "led the initiative across 2 designers and 7 engineers",
+                         "type": "verified_metric", "source": "candidate_provided"},
                     ],
                     # THREE SEPARATE MEASUREMENTS. Choose one. Never combine.
                     "metric_variants": [
-                        {"claim": "~+127% mobile usage/engagement at launch",
-                         "type": "approximate_supported_metric", "source": "candidate_provided",
+                        {"claim": "lifted mobile engagement 127% at launch",
+                         "type": "verified_metric", "source": "verified_resume",
                          "basis": "launch measurement",
                          "use_when": "the role rewards launch impact and visible step-changes"},
                         {"claim": "~15% sustained mobile usage lift",
@@ -393,10 +417,10 @@ EXPERIENCE_BANK = {
                          "note": "The strongest version for transaction workflow, funnel or conversion roles."},
                     ],
                     "metric_variants": [
-                        {"claim": "~16% improvement in document access rate",
-                         "type": "approximate_supported_metric", "source": "verified_resume",
-                         "basis": "current resume framing; may be a different measurement entirely",
-                         "use_when": "only after Sofia confirms what this measures"},
+                        {"claim": "improved document access rate by 16%, reducing turnaround time",
+                         "type": "verified_metric", "source": "verified_resume",
+                         "basis": "the resume's own measurement of the redesigned document workflow",
+                         "use_when": "the default choice — it is the resume-backed figure"},
                     ],
                     "metric_warning": (
                         "The 16%->37% figure and the '~16% document access rate' figure may describe "
@@ -425,10 +449,10 @@ EXPERIENCE_BANK = {
                     ],
                     "results": ["Improved reliability and maintainability; fewer support tickets"],
                     "metrics": [
-                        {"claim": "~15 email notification types migrated to Courier",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
-                        {"claim": "email-related support tickets reduced ~44%",
-                         "type": "approximate_supported_metric", "source": "candidate_provided"},
+                        {"claim": "15 email notification types migrated to Courier",
+                         "type": "verified_metric", "source": "verified_resume"},
+                        {"claim": "email-related support tickets reduced 44%",
+                         "type": "verified_metric", "source": "verified_resume"},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
@@ -452,8 +476,8 @@ EXPERIENCE_BANK = {
                     ],
                     "results": ["Approximately +15% buyer engagement"],
                     "metrics": [
-                        {"claim": "~+15% buyer engagement", "type": "approximate_supported_metric",
-                         "source": "candidate_provided"},
+                        {"claim": "+15% buyer engagement", "type": "verified_metric",
+                         "source": "verified_resume"},
                     ],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
@@ -517,6 +541,13 @@ EXPERIENCE_BANK = {
                     "keywords": ["down-funnel", "LOI", "transaction reporting"],
                 },
             ],
+            "resume_claims_without_detail": [
+                {"claim": "improved onboarding", "source": "verified_resume",
+                 "gap": "No project detail, actions or metrics supplied. Cannot be expanded beyond this phrase."},
+                {"claim": "refined machine-learning-driven recommendations, working with data science",
+                 "source": "verified_resume",
+                 "gap": "No project detail, actions or metrics supplied. Cannot be expanded beyond this phrase."},
+            ],
             "additional_themes": [
                 "onboarding", "buyer/seller marketplace matching", "anonymized matching",
                 "NDA e-sign / confidentiality workflows", "CIM watermarking", "buyside digest",
@@ -526,9 +557,10 @@ EXPERIENCE_BANK = {
 
         {
             "company": "Confluent",
+            "employment_source": "verified_resume",
             "title": "Associate Consulting Engineer",
             "dates": "June 2021 - October 2022",
-            "location": "New York",
+            "location": "Remote",
             "domain": "Enterprise data infrastructure / event streaming",
             "summary": (
                 "Technical consulting and engineering for Fortune 500 banking and "
@@ -560,8 +592,10 @@ EXPERIENCE_BANK = {
                         "Translated technical systems into enterprise implementation plans",
                     ],
                     "results": [
-                        "Clients equipped with adoption strategies and implementation plans for event-driven infrastructure",
+                        "Modernized event-streaming infrastructure to reduce data latency and meet security and compliance requirements",
+                        "Clients equipped with multi-year Kafka adoption strategies",
                     ],
+                    "results_source": "verified_resume",
                     "metrics": [],
                     "metric_variants": [],
                     "possible_metric_to_validate": [
@@ -661,8 +695,8 @@ EXPERIENCE_BANK = {
         {
             "institution": "Columbia University",
             "credential": "BA, Economics",
-            "dates": "2015 - 2019",
-            "source": "candidate_provided",
+            "dates": "September 2015 - May 2019",
+            "source": "verified_resume",
             "notes": "",
         },
     ],
@@ -682,6 +716,13 @@ EXPERIENCE_BANK = {
                     "enterprise AI", "private wealth"],
         "collaboration": ["Legal / Risk / Compliance", "Design", "Engineering",
                           "Data Science", "Sales", "Operations"],
+        "on_resume": {
+            "source": "verified_resume",
+            "items": ["Apache Kafka", "API integrations", "Figma", "FullStory",
+                      "Google Analytics", "LLM-powered products", "SQL",
+                      "German", "Persian/Farsi"],
+            "note": "Everything else in this skills section is candidate_provided.",
+        },
         "positioning_caveat": (
             "Do not claim expert-level hands-on software engineering. Sofia is "
             "technically fluent with an engineering/consulting foundation, but "
@@ -776,6 +817,27 @@ def blocked_claims() -> list:
         for entry in project.get("possible_metric_to_validate", []):
             out.append((company, project["name"], entry["claim"]))
     return out
+
+
+def provenance_counts() -> dict:
+    """Count every sourced claim in the bank by provenance label."""
+    counts = {"verified_resume": 0, "candidate_provided": 0,
+              "supported_inference": 0, "needs_validation": 0}
+
+    def walk(node):
+        if isinstance(node, dict):
+            src = node.get("source")
+            if isinstance(src, str) and src in counts:
+                counts[src] += 1
+            for key, value in node.items():
+                if key != "source":
+                    walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(EXPERIENCE_BANK)
+    return counts
 
 
 def usable_metrics() -> list:
