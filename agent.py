@@ -67,7 +67,7 @@ Rules:
   recommendation for this candidate. Missing information is NOT by itself a
   reason to search: if the gap is something only the employer can answer — their
   comp band, their team structure, who the founders are — record it under
-  Missing Information and move on. Prefer answering with no searches at all.
+  Missing Information and move on.
 - Recommendation must be exactly one of: APPLY, MAYBE, SKIP
 - Recommendation is about fit between this candidate and this role, not how
   attractive the role is in the abstract.
