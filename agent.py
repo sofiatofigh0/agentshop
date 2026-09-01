@@ -7,12 +7,14 @@ difference: the number of API calls is no longer something this file knows in
 advance.
 """
 
+import json
 import os
 import sys
 
 import anthropic
 from dotenv import load_dotenv
 
+from candidate_profile import CANDIDATE_PROFILE
 from sample_jobs import SAMPLES
 from tools import TOOLS, TOOL_FUNCTIONS
 
@@ -30,11 +32,12 @@ MAX_TOOL_CALLS = 3
 # its answer must take. It is the same on every request and says nothing about
 # any particular job - that keeps the job description separate from the data, so
 # editing the prompt is how you tune behavior for every input at once.
-SYSTEM_PROMPT = """You are a Job Opportunity assistant.
+BASE_PROMPT = """You are a Job Opportunity assistant.
 
 A candidate will paste in the text of a job description. Read it the way an
 experienced recruiter would and help them decide whether the role is worth
-pursuing.
+pursuing — for this candidate specifically, whose profile is at the end of these
+instructions.
 
 Reply with exactly these fields, each on its own line, in this order, with no
 extra commentary before or after:
@@ -57,19 +60,32 @@ Rules:
   "Not specified" rather than guessing or inferring a plausible value.
 - Missing Information is what a candidate would need before applying - unstated
   pay, vague scope, no team size, unclear seniority, and so on.
-- You are not given the candidate's resume, so judge fit from the posting alone:
-  Strongest Fit Areas is what the role offers and the kind of background it
-  rewards; Main Gaps or Risks is what is stated but unfavorable, contradictory,
-  or a warning sign.
-- If the posting leaves out something you need in order to judge the
-  opportunity, use the search_web tool to look it up before answering. Keep
-  writing "Not specified" for fields the posting itself does not state, and say
-  in Main Gaps or Risks what the search did or did not turn up.
+- Strongest Fit Areas is where this candidate's profile lines up with what the
+  role rewards. Main Gaps or Risks is where the role conflicts with their
+  profile, plus anything stated that is unfavorable or a warning sign.
+- Use the search_web tool only when a search could materially change the
+  recommendation for this candidate. Missing information is NOT by itself a
+  reason to search: if the gap is something only the employer can answer — their
+  comp band, their team structure, who the founders are — record it under
+  Missing Information and move on. Prefer answering with no searches at all.
 - Recommendation must be exactly one of: APPLY, MAYBE, SKIP
+- Recommendation is about fit between this candidate and this role, not how
+  attractive the role is in the abstract. An excellent role that conflicts with
+  what the candidate wants to avoid is not an APPLY. A modest role that fits
+  their goals and constraints can be.
 - Reasoning is two or three sentences explaining that recommendation.
-- What to Emphasize if Applying is the one or two things this posting most
-  clearly rewards, phrased as advice.
+- What to Emphasize if Applying is the one or two things from this candidate's
+  own background that this posting most clearly rewards, phrased as advice.
 """
+
+# The profile is standing context, so it belongs in the system prompt next to
+# the instructions rather than being pasted into each job description. Same on
+# every call; only the user message changes.
+SYSTEM_PROMPT = (
+    BASE_PROMPT
+    + "\n\nCANDIDATE PROFILE:\n"
+    + json.dumps(CANDIDATE_PROFILE, indent=2)
+)
 
 
 def evaluate(job_description: str) -> anthropic.types.Message:
