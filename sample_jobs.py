@@ -114,4 +114,9 @@ project building a working prototype so we can see how you operate. Relocation
 to Austin is required and is at the candidate's own expense.
 """
 
-SAMPLES = [STRONG_FIT_AI_PRODUCT, AMBIGUOUS_ROLE, POOR_FIT_RED_FLAGS]
+# Name -> description, so the runner can label each result.
+SAMPLES = {
+    "STRONG_FIT_AI_PRODUCT": STRONG_FIT_AI_PRODUCT,
+    "AMBIGUOUS_ROLE": AMBIGUOUS_ROLE,
+    "POOR_FIT_RED_FLAGS": POOR_FIT_RED_FLAGS,
+}

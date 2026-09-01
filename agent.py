@@ -62,8 +62,8 @@ Rules:
 """
 
 
-def evaluate(job_description: str) -> str:
-    """Send one job description to the model and return the report as text."""
+def evaluate(job_description: str) -> anthropic.types.Message:
+    """Send one job description to the model and return the whole response."""
     client = anthropic.Anthropic()  # picks up ANTHROPIC_API_KEY from the environment
 
     # The user message is the data: just the pasted job description, nothing
@@ -79,9 +79,15 @@ def evaluate(job_description: str) -> str:
     # which is a *list* of content blocks rather than a single string - a block
     # has a .type, and only blocks of type "text" carry readable output. Joining
     # the text blocks is what turns the response back into a printable report.
-    # (response.usage has the token counts, and response.stop_reason says why the
-    # model stopped - that one becomes important once tools are added, because
-    # "tool_use" is the signal to run a tool and call again.)
+    # We return the whole Message rather than just the text, because the caller
+    # also wants response.usage (the token counts) and response.stop_reason (why
+    # the model stopped - that one becomes important once tools are added,
+    # because "tool_use" is the signal to run a tool and call again).
+    return response
+
+
+def report_text(response: anthropic.types.Message) -> str:
+    """Join the readable text blocks of a response into one printable report."""
     return "\n".join(block.text for block in response.content if block.type == "text")
 
 
@@ -91,5 +97,18 @@ if __name__ == "__main__":
     if not MODEL:
         raise SystemExit("ANTHROPIC_MODEL is not set. Copy .env.example to .env and fill it in.")
 
-    job = SAMPLES[0]  # change the index to try the other samples
-    print(evaluate(job))
+    # One independent API call per sample. Nothing is shared between them - no
+    # conversation history, no tools, no second pass. Three separate baselines.
+    for name, job in SAMPLES.items():
+        print("=" * 78)
+        print(name)
+        print("=" * 78)
+
+        response = evaluate(job)
+
+        print(report_text(response))
+        print()
+        print(f"input tokens:  {response.usage.input_tokens}")
+        print(f"output tokens: {response.usage.output_tokens}")
+        print(f"stop_reason:   {response.stop_reason}")
+        print()
