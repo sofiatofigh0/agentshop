@@ -10,7 +10,7 @@ the honest first question is whether the agent was wrong or whether the
 expectation was.
 """
 
-from agent import evaluate, report_text
+from agent import evaluate, parse_recommendation, report_text
 from sample_jobs import SAMPLES
 
 # recommendation: what a careful human would conclude for THIS candidate profile.
@@ -31,16 +31,6 @@ EXPECTED = {
     # search can close, and it bears on a stated preference (Series A to C).
     "REMOTE_STRONG_FIT_UNKNOWN_COMPANY": {"recommendation": "APPLY", "research_useful": True},
 }
-
-
-def parse_recommendation(text: str) -> str:
-    """Pull APPLY / MAYBE / SKIP out of the report."""
-    for line in text.splitlines():
-        if line.strip().startswith("Recommendation:"):
-            for verdict in ("APPLY", "MAYBE", "SKIP"):
-                if verdict in line:
-                    return verdict
-    return "UNPARSED"
 
 
 if __name__ == "__main__":

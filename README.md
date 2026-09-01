@@ -38,12 +38,20 @@ and whether any happen at all, is not something the code decides in advance.
 ## Structure
 
 ```
-agent.py          the loop: messages, tool dispatch, final answer
-tools.py          tool schemas + the Python functions behind them
-sample_jobs.py    fixture job descriptions to test against
-requirements.txt  anthropic, python-dotenv
-.env.example      copy to .env and add your API key
+agent.py                  orchestration, the agent loop, interactive input
+tools.py                  the search_web tool: schema + implementation
+candidate_profile.py      what you want — preferences, goals, constraints
+experience_bank.py        what you have done — the factual source of truth
+application_generator.py  deterministic resume / letter / strategy pipeline
+sample_jobs.py            fixtures for the eval suite
+evals.py                  the eval harness
+outputs/                  generated materials (gitignored)
 ```
+
+Two files hold facts about you and they are deliberately separate.
+`candidate_profile.py` is preference — it decides APPLY / MAYBE / SKIP.
+`experience_bank.py` is evidence — it is the only thing generated materials may
+draw on. Nothing written into a resume can come from the profile.
 
 ## Quickstart
 
@@ -51,11 +59,36 @@ requirements.txt  anthropic, python-dotenv
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env      # then fill in ANTHROPIC_API_KEY and ANTHROPIC_MODEL
-python agent.py
 ```
+
+Fill in `experience_bank.py` with your real experience — the agent refuses to
+generate application materials while placeholders remain, because it will not
+invent facts to fill the gaps. Then:
+
+```bash
+python agent.py           # paste a job description, end with END on its own line
+python evals.py           # run the fixture suite instead
+```
+
+If the verdict is APPLY or MAYBE the package is generated automatically; on a
+SKIP you are asked, and the default is no. Everything lands in `outputs/`,
+which is gitignored because generated applications contain personal
+information.
+
+## Factual guardrails
+
+Generated materials go through a fixed pipeline, and the model does not get to
+approve its own work:
+
+1. a requirement-to-evidence map, written before any prose, so selection has to
+   be justified rather than keyword-matched
+2. a resume drafted from that map
+3. a separate factuality call that reads the draft against the experience bank
+   and labels every claim SUPPORTED / PARTIALLY SUPPORTED / UNSUPPORTED
+4. Python reads that verdict and forces a revision pass if anything failed
+5. only then is the file written
 
 ## Status
 
-**Baseline** — `agent.py` is a single LLM call: one system prompt, one user
-message, one printed report. No tools, no loop. It's the control to measure the
-tool-using agent against. `tools.py` is still a placeholder.
+Working. The eval suite covers the evaluation half; the generation half is
+exercised by running it.

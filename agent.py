@@ -1,10 +1,24 @@
 """
-Job Opportunity Agent - V2, tool-using.
+Job Opportunity Agent — orchestration and the agent loop.
 
-The baseline was one call in, one answer out. This version hands Claude a
-search_web tool and lets it decide whether to use it. That decision is the whole
-difference: the number of API calls is no longer something this file knows in
-advance.
+Run it with:  python agent.py
+
+Paste a job description, and the agent evaluates it against your profile,
+researches the company if that could change the answer, and returns
+APPLY / MAYBE / SKIP. If the role is worth pursuing it hands off to
+application_generator.py for the resume, cover letter and strategy.
+
+The split this file exists to demonstrate:
+
+  THE MODEL DECIDES   whether to search, what to search for, whether one result
+                      was enough, which uncertainties matter, which experience
+                      is relevant.
+
+  PYTHON DECIDES      how many searches are allowed, when the loop stops, where
+                      files are written, whether unsupported claims survive,
+                      and how credentials are handled.
+
+Neither can overrule the other. That boundary is the architecture.
 """
 
 import json
@@ -15,7 +29,7 @@ import anthropic
 from dotenv import load_dotenv
 
 from candidate_profile import CANDIDATE_PROFILE
-from sample_jobs import SAMPLES
+from application_generator import generate_application_package
 from tools import TOOLS, TOOL_FUNCTIONS
 
 # Reads the .env file next to this script and copies its values into the
@@ -105,7 +119,9 @@ def evaluate(job_description: str) -> dict:
     # every tool result gets appended, and the whole history is resent each turn.
     # That history is the agent's only memory.
     messages = [{"role": "user", "content": job_description}]
+    research_notes = []  # kept so the generation stage can reuse what was found
     searches_used = 0
+    search_queries = []
     input_tokens = 0
     output_tokens = 0
 
@@ -132,6 +148,8 @@ def evaluate(job_description: str) -> dict:
             return {
                 "response": response,
                 "search_count": searches_used,
+                "search_queries": search_queries,
+                "research": "\n\n".join(research_notes),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }
@@ -151,6 +169,8 @@ def evaluate(job_description: str) -> dict:
             if searches_used < MAX_TOOL_CALLS:
                 print(f'  [tool call {searches_used + 1}] search_web(query="{block.input["query"]}")')
                 output = TOOL_FUNCTIONS[block.name](**block.input)
+                search_queries.append(block.input["query"])
+                research_notes.append(output)
                 searches_used += 1
             else:
                 print("  [budget spent] refusing further searches")
@@ -169,6 +189,8 @@ def evaluate(job_description: str) -> dict:
     return {
         "response": response,
         "search_count": searches_used,
+        "search_queries": search_queries,
+        "research": "\n\n".join(research_notes),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
     }
@@ -179,32 +201,102 @@ def report_text(response: anthropic.types.Message) -> str:
     return "\n".join(block.text for block in response.content if block.type == "text")
 
 
-if __name__ == "__main__":
+def parse_field(report: str, field: str) -> str:
+    """Pull one labelled field out of the report. Empty string if absent."""
+    for line in report.splitlines():
+        if line.strip().startswith(f"{field}:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def parse_recommendation(report: str) -> str:
+    """Pull APPLY / MAYBE / SKIP out of the report."""
+    line = parse_field(report, "Recommendation")
+    for verdict in ("APPLY", "MAYBE", "SKIP"):
+        if verdict in line:
+            return verdict
+    return "UNPARSED"
+
+
+def read_job_description() -> str:
+    """Read a pasted, multi-line job description from the terminal.
+
+    Terminated by a line containing only END, or by end-of-input (ctrl-D), so
+    the script also works when a file is piped in.
+    """
+    print("Paste job description below.")
+    print("When finished, type END on a new line.\n")
+    lines = []
+    for line in sys.stdin:
+        if line.strip() == "END":
+            break
+        lines.append(line)
+    return "".join(lines).strip()
+
+
+def main() -> None:
+    """The interactive runtime. Evals bypass this and call evaluate() directly."""
+    # Python owns credential handling — checked once, before anything costs money.
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in.")
     if not MODEL:
         raise SystemExit("ANTHROPIC_MODEL is not set. Copy .env.example to .env and fill it in.")
 
-    # WHY THIS IS NOW AGENTIC: in the baseline this file decided everything —
-    # one call, one answer, every run identical. Now the control flow is data.
-    # Claude chooses whether to search, what to search for, and whether one
-    # result was enough or it needs another; the loop above just carries out
-    # whatever it asks for, up to a limit we enforce. Two runs of the same
-    # sample can take a different number of API calls.
-    #
-    # Run one sample with:  python agent.py AMBIGUOUS_ROLE
-    for name in sys.argv[1:] or list(SAMPLES):
-        job = SAMPLES[name]
-        print("=" * 78)
-        print(name)
-        print("=" * 78)
+    job_description = read_job_description()
+    if not job_description:
+        raise SystemExit("No job description given — nothing to evaluate.")
 
-        result = evaluate(job)
+    print("\nEvaluating...\n")
+    result = evaluate(job_description)
+    report = report_text(result["response"])
 
-        print(report_text(result["response"]))
-        print()
-        print(f"searches:      {result['search_count']}")
-        print(f"input tokens:  {result['input_tokens']}")
-        print(f"output tokens: {result['output_tokens']}")
-        print(f"stop_reason:   {result['response'].stop_reason}")
-        print()
+    recommendation = parse_recommendation(report)
+    reasoning = parse_field(report, "Reasoning")
+
+    if recommendation == "UNPARSED":
+        # Malformed response: show the whole thing rather than guessing.
+        print("Could not find a recommendation in the response. Full output:\n")
+        print(report)
+        return
+
+    print(f"Recommendation: {recommendation}")
+    print(f"{reasoning}\n")
+
+    # Python owns this branch, not the model.
+    generate = recommendation in ("APPLY", "MAYBE")
+    if not generate:
+        answer = input("This looks like a SKIP. Generate application materials anyway? [y/N] ")
+        generate = answer.strip().lower().startswith("y")
+
+    package = None
+    if generate:
+        print("\nGenerating application package...")
+        try:
+            package = generate_application_package(
+                job_description, recommendation, reasoning, result["research"]
+            )
+        except RuntimeError as exc:
+            print(f"\nCould not generate: {exc}")
+
+    if package:
+        print("\nWrote:")
+        for path in package["files"].values():
+            print(f"  {path}")
+
+    # --- trace ------------------------------------------------------------
+    # Deliberately does not echo the candidate profile or the job description.
+    print("\n--- trace ---")
+    print(f"Recommendation:            {recommendation}")
+    print(f"Searches used:             {result['search_count']}")
+    for query in result["search_queries"]:
+        print(f"  query:                   {query}")
+    print(f"Main agent input tokens:   {result['input_tokens']}")
+    print(f"Main agent output tokens:  {result['output_tokens']}")
+    print(f"Generation calls:          {package['generation_calls'] if package else 0}")
+    if package:
+        print(f"Generation input tokens:   {package['input_tokens']}")
+        print(f"Generation output tokens:  {package['output_tokens']}")
+
+
+if __name__ == "__main__":
+    main()
