@@ -1,17 +1,20 @@
 """
-Job Opportunity Agent - BASELINE.
+Job Opportunity Agent - V2, tool-using.
 
-This is the simple version on purpose: one system prompt, one user message, one
-API call, one printed report. No tools, no loop, no framework. It exists so that
-once the tool-using agent is built, there is something honest to compare it to.
+The baseline was one call in, one answer out. This version hands Claude a
+search_web tool and lets it decide whether to use it. That decision is the whole
+difference: the number of API calls is no longer something this file knows in
+advance.
 """
 
 import os
+import sys
 
 import anthropic
 from dotenv import load_dotenv
 
 from sample_jobs import SAMPLES
+from tools import TOOLS, TOOL_FUNCTIONS
 
 # Reads the .env file next to this script and copies its values into the
 # environment. After this, ANTHROPIC_API_KEY and ANTHROPIC_MODEL are readable
@@ -19,6 +22,9 @@ from sample_jobs import SAMPLES
 load_dotenv()
 
 MODEL = os.environ.get("ANTHROPIC_MODEL")
+
+# A hard ceiling we enforce in Python. The model cannot talk its way past this.
+MAX_TOOL_CALLS = 3
 
 # The system prompt is the standing instruction: who the model is and what shape
 # its answer must take. It is the same on every request and says nothing about
@@ -55,6 +61,10 @@ Rules:
   Strongest Fit Areas is what the role offers and the kind of background it
   rewards; Main Gaps or Risks is what is stated but unfavorable, contradictory,
   or a warning sign.
+- If the posting leaves out something you need in order to judge the
+  opportunity, use the search_web tool to look it up before answering. Keep
+  writing "Not specified" for fields the posting itself does not state, and say
+  in Main Gaps or Risks what the search did or did not turn up.
 - Recommendation must be exactly one of: APPLY, MAYBE, SKIP
 - Reasoning is two or three sentences explaining that recommendation.
 - What to Emphasize if Applying is the one or two things this posting most
@@ -63,26 +73,65 @@ Rules:
 
 
 def evaluate(job_description: str) -> anthropic.types.Message:
-    """Send one job description to the model and return the whole response."""
-    client = anthropic.Anthropic()  # picks up ANTHROPIC_API_KEY from the environment
+    """Run the agent loop on one job description and return the final response."""
+    client = anthropic.Anthropic()
 
-    # The user message is the data: just the pasted job description, nothing
-    # else. The instructions live in the system prompt, so this stays swappable.
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=16000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": job_description}],
-    )
+    # The conversation. Unlike the baseline, this grows: every tool request and
+    # every tool result gets appended, and the whole history is resent each turn.
+    # That history is the agent's only memory.
+    messages = [{"role": "user", "content": job_description}]
+    searches_used = 0
 
-    # The call returns a Message object. The interesting part is response.content,
-    # which is a *list* of content blocks rather than a single string - a block
-    # has a .type, and only blocks of type "text" carry readable output. Joining
-    # the text blocks is what turns the response back into a printable report.
-    # We return the whole Message rather than just the text, because the caller
-    # also wants response.usage (the token counts) and response.stop_reason (why
-    # the model stopped - that one becomes important once tools are added,
-    # because "tool_use" is the signal to run a tool and call again).
+    # At most MAX_TOOL_CALLS rounds of searching, one round to tell the model its
+    # budget is gone, and one round for it to write the final answer. Bounding
+    # the loop in Python is what makes "cannot search forever" a guarantee
+    # rather than a request.
+    for _ in range(MAX_TOOL_CALLS + 2):
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=16000,
+            system=SYSTEM_PROMPT,
+            tools=TOOLS,  # the schemas from tools.py, sent on every turn
+            messages=messages,
+        )
+
+        # HOW CLAUDE ASKS FOR A TOOL: it does not call anything itself. It ends
+        # its turn with stop_reason == "tool_use" and puts one or more tool_use
+        # blocks in its content, each with a name, an id, and the arguments it
+        # chose. Any other stop_reason means it is done and this is the answer.
+        if response.stop_reason != "tool_use":
+            return response
+
+        # The assistant turn must go into the history verbatim, tool_use blocks
+        # and all, or the next request will not line up with the tool results.
+        messages.append({"role": "assistant", "content": response.content})
+
+        results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+
+            # HOW PYTHON EXECUTES THE TOOL: we look the name up in the dispatch
+            # dict and call it with the arguments Claude chose. This is ordinary
+            # Python — the model has no access to the machine, it can only ask.
+            if searches_used < MAX_TOOL_CALLS:
+                print(f'  [tool call {searches_used + 1}] search_web(query="{block.input["query"]}")')
+                output = TOOL_FUNCTIONS[block.name](**block.input)
+                searches_used += 1
+            else:
+                print("  [budget spent] refusing further searches")
+                output = "Search budget exhausted. Answer using what you already have."
+
+            # HOW THE RESULT GETS BACK: as a user turn containing a tool_result
+            # block whose tool_use_id matches the request. Every tool_use needs
+            # exactly one matching tool_result, in one single user message.
+            results.append(
+                {"type": "tool_result", "tool_use_id": block.id, "content": output}
+            )
+
+        messages.append({"role": "user", "content": results})
+
+    # Only reachable if the model asked for tools every single round.
     return response
 
 
@@ -97,9 +146,16 @@ if __name__ == "__main__":
     if not MODEL:
         raise SystemExit("ANTHROPIC_MODEL is not set. Copy .env.example to .env and fill it in.")
 
-    # One independent API call per sample. Nothing is shared between them - no
-    # conversation history, no tools, no second pass. Three separate baselines.
-    for name, job in SAMPLES.items():
+    # WHY THIS IS NOW AGENTIC: in the baseline this file decided everything —
+    # one call, one answer, every run identical. Now the control flow is data.
+    # Claude chooses whether to search, what to search for, and whether one
+    # result was enough or it needs another; the loop above just carries out
+    # whatever it asks for, up to a limit we enforce. Two runs of the same
+    # sample can take a different number of API calls.
+    #
+    # Run one sample with:  python agent.py AMBIGUOUS_ROLE
+    for name in sys.argv[1:] or list(SAMPLES):
+        job = SAMPLES[name]
         print("=" * 78)
         print(name)
         print("=" * 78)
