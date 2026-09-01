@@ -70,9 +70,12 @@ Rules:
   Missing Information and move on. Prefer answering with no searches at all.
 - Recommendation must be exactly one of: APPLY, MAYBE, SKIP
 - Recommendation is about fit between this candidate and this role, not how
-  attractive the role is in the abstract. An excellent role that conflicts with
-  what the candidate wants to avoid is not an APPLY. A modest role that fits
-  their goals and constraints can be.
+  attractive the role is in the abstract.
+- Weigh the profile's two lists differently. Violating a hard_constraint can
+  justify SKIP on its own. Violating a strong_preference lowers fit but never
+  forces SKIP by itself; several strong_preference violations together can.
+  Otherwise weigh the whole opportunity holistically rather than scanning for
+  disqualifiers.
 - Reasoning is two or three sentences explaining that recommendation.
 - What to Emphasize if Applying is the one or two things from this candidate's
   own background that this posting most clearly rewards, phrased as advice.
