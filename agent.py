@@ -88,8 +88,14 @@ SYSTEM_PROMPT = (
 )
 
 
-def evaluate(job_description: str) -> anthropic.types.Message:
-    """Run the agent loop on one job description and return the final response."""
+def evaluate(job_description: str) -> dict:
+    """Run the agent loop on one job description.
+
+    Returns the final response plus a little metadata about how the run went:
+    how many searches it took and what it cost. Token counts are summed across
+    every call the loop made, not just the last one. They do not include the
+    nested API calls that search_web itself makes.
+    """
     client = anthropic.Anthropic()
 
     # The conversation. Unlike the baseline, this grows: every tool request and
@@ -97,6 +103,8 @@ def evaluate(job_description: str) -> anthropic.types.Message:
     # That history is the agent's only memory.
     messages = [{"role": "user", "content": job_description}]
     searches_used = 0
+    input_tokens = 0
+    output_tokens = 0
 
     # At most MAX_TOOL_CALLS rounds of searching, one round to tell the model its
     # budget is gone, and one round for it to write the final answer. Bounding
@@ -110,13 +118,20 @@ def evaluate(job_description: str) -> anthropic.types.Message:
             tools=TOOLS,  # the schemas from tools.py, sent on every turn
             messages=messages,
         )
+        input_tokens += response.usage.input_tokens
+        output_tokens += response.usage.output_tokens
 
         # HOW CLAUDE ASKS FOR A TOOL: it does not call anything itself. It ends
         # its turn with stop_reason == "tool_use" and puts one or more tool_use
         # blocks in its content, each with a name, an id, and the arguments it
         # chose. Any other stop_reason means it is done and this is the answer.
         if response.stop_reason != "tool_use":
-            return response
+            return {
+                "response": response,
+                "search_count": searches_used,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            }
 
         # The assistant turn must go into the history verbatim, tool_use blocks
         # and all, or the next request will not line up with the tool results.
@@ -148,7 +163,12 @@ def evaluate(job_description: str) -> anthropic.types.Message:
         messages.append({"role": "user", "content": results})
 
     # Only reachable if the model asked for tools every single round.
-    return response
+    return {
+        "response": response,
+        "search_count": searches_used,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+    }
 
 
 def report_text(response: anthropic.types.Message) -> str:
@@ -176,11 +196,12 @@ if __name__ == "__main__":
         print(name)
         print("=" * 78)
 
-        response = evaluate(job)
+        result = evaluate(job)
 
-        print(report_text(response))
+        print(report_text(result["response"]))
         print()
-        print(f"input tokens:  {response.usage.input_tokens}")
-        print(f"output tokens: {response.usage.output_tokens}")
-        print(f"stop_reason:   {response.stop_reason}")
+        print(f"searches:      {result['search_count']}")
+        print(f"input tokens:  {result['input_tokens']}")
+        print(f"output tokens: {result['output_tokens']}")
+        print(f"stop_reason:   {result['response'].stop_reason}")
         print()
