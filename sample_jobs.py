@@ -5,6 +5,11 @@ Three examples, one per recommendation path:
     STRONG_FIT_AI_PRODUCT  well-specified, well-paid, clearly scoped
     AMBIGUOUS_ROLE         plausible, but too vague to judge as written
     POOR_FIT_RED_FLAGS     specific, and what it specifies is the problem
+
+    REMOTE_STRONG_FIT_UNKNOWN_COMPANY
+        clears every hard constraint and is well specified on the role itself,
+        but says nothing about the company's stage, funding, or trajectory —
+        the one gap external research could actually close
 """
 
 STRONG_FIT_AI_PRODUCT = """
@@ -114,9 +119,59 @@ project building a working prototype so we can see how you operate. Relocation
 to Austin is required and is at the candidate's own expense.
 """
 
+REMOTE_STRONG_FIT_UNKNOWN_COMPANY = """
+Senior Product Manager, Model Evaluation
+Ostrom Labs - New York, NY (hybrid, 2 days/week in our Flatiron office) or fully
+remote for candidates in US Eastern time
+
+The role
+
+Ostrom Labs builds the evaluation and monitoring layer that enterprise teams use
+to keep their LLM deployments honest. We're hiring a senior PM to own the
+evaluation product line end to end as we move into our next phase of growth.
+
+What you'll own
+
+- The roadmap for our evaluation suite: offline eval runs, drift and regression
+  detection, and the human review workflow our customers run their releases
+  through
+- Definition of what "quality" means in our product, in partnership with the
+  applied research group
+- Weekly contact with the customers actually running evals in production; you
+  will be expected to write the problem statement yourself
+- The metrics for the line, reviewed monthly with the leadership team
+
+Who you'll work with
+
+You'll report to our VP of Product and work with a dedicated pod of 9 engineers
+and 2 designers. This is a single, clearly scoped product line - not a
+wear-every-hat role.
+
+What we're looking for
+
+- 5+ years in product management, including time on developer or infrastructure
+  products
+- Hands-on experience with LLM application development; you should have shipped
+  something against an API and be able to say why it failed
+- Comfort defining an ambiguous problem space and taking it to general
+  availability
+- Strong written communication
+
+Compensation
+
+- Base salary: $195,000 - $240,000
+- Equity: 0.03% - 0.08%, 4-year vest with a 1-year cliff
+- Medical, dental, vision; 401(k) with match; 22 days PTO
+- Standard hours - we don't run an on-call rotation for product
+
+Process: recruiter screen, hiring manager conversation, a paid take-home, then a
+three-person final loop. Typically two to three weeks end to end.
+"""
+
 # Name -> description, so the runner can label each result.
 SAMPLES = {
     "STRONG_FIT_AI_PRODUCT": STRONG_FIT_AI_PRODUCT,
     "AMBIGUOUS_ROLE": AMBIGUOUS_ROLE,
     "POOR_FIT_RED_FLAGS": POOR_FIT_RED_FLAGS,
+    "REMOTE_STRONG_FIT_UNKNOWN_COMPANY": REMOTE_STRONG_FIT_UNKNOWN_COMPANY,
 }

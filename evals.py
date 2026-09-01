@@ -26,6 +26,10 @@ EXPECTED = {
     "AMBIGUOUS_ROLE": {"recommendation": "SKIP", "research_useful": False},
     # Disqualifying on the face of the posting. No external fact rescues it.
     "POOR_FIT_RED_FLAGS": {"recommendation": "SKIP", "research_useful": False},
+    # Clears every hard constraint and is well specified on the role. The one
+    # gap — company stage, funding, trajectory — is exactly the kind of thing a
+    # search can close, and it bears on a stated preference (Series A to C).
+    "REMOTE_STRONG_FIT_UNKNOWN_COMPANY": {"recommendation": "APPLY", "research_useful": True},
 }
 
 
