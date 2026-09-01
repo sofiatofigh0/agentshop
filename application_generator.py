@@ -40,7 +40,26 @@ You may NOT invent experience, metrics, technologies, tools, certifications, or
 management responsibility. You may not change employers, official titles, or
 dates, and you may not imply more seniority than the bank shows. If the job
 asks for something the bank does not support, treat it as a gap and say so
-plainly rather than writing around it."""
+plainly rather than writing around it.
+
+The bank's fields carry different permissions. Respect them exactly:
+
+  metrics       Safe to state as written.
+  framing       Interpretations of the verified work that the candidate has
+                already approved. Safe to use.
+  metric_variants
+                Real numbers from DIFFERENT analyses of the same project. Choose
+                exactly ONE per bullet, guided by its `use_when`. Never combine
+                two, never sum them, never present two as if they measure the
+                same thing. Obey any `metric_warning` on the project.
+  possible_metric_to_validate
+                UNVERIFIED. These are open questions, not achievements. Never
+                put one in a resume, cover letter or strategy document in any
+                form, however hedged.
+  scale_caveat  A restriction on how a project may be described. Obey it.
+
+Where a project records years of experience or a seniority note, use the
+bank's wording rather than computing your own."""
 
 
 def _call(system: str, user: str, max_tokens: int = 8000) -> tuple:
@@ -152,9 +171,17 @@ Go through the draft claim by claim — every employer, title, date, metric,
 technology, scope claim and seniority implication. For each one, decide whether
 the experience bank supports it:
 
-SUPPORTED           the bank states this, or it is a fair rewording
+SUPPORTED           the bank states this, or it is a fair rewording, or it is
+                    listed under that project's `framing`
 PARTIALLY SUPPORTED the bank hints at it but the draft goes further
 UNSUPPORTED         the bank does not contain this at all
+
+Treat these as UNSUPPORTED even though the words appear in the bank:
+- any number drawn from `possible_metric_to_validate`
+- two `metric_variants` from one project combined, summed, or used as if they
+  measure the same thing
+- any claim that breaks a project's `metric_warning` or `scale_caveat`
+- a metric restated without the timeframe the bank gives it
 
 Output a markdown table: | Claim | Verdict | Basis in the bank |
 
