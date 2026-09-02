@@ -1,0 +1,74 @@
+{
+  "id": "maybe",
+  "label": "Example Run",
+  "mode": "cached",
+  "job": {
+    "company": "Undisclosed (stealth)",
+    "title": "Product Lead (AI)",
+    "location": "\"Remote-ish\"",
+    "text": "Product Lead (AI)\nStealth startup — Remote-ish\n\nWe're a well-funded early stage team working on something big in the AI space. We can't say too much publicly yet, but we're backed by top-tier investors and moving fast.\n\nWe're looking for someone who can wear a lot of hats. You'll be involved in product, obviously, but also a bit of everything else — GTM, design input, maybe some hands-on work depending on your background. The right person is scrappy and doesn't need a lot of direction.\n\nLocation is flexible for the right candidate, though we do like to get the team together regularly.\n\nCompensation is competitive and includes meaningful equity. Happy to discuss specifics once we connect.\n\n(Fictional posting, written for this demo.)"
+  },
+  "recommendation": "MAYBE",
+  "recommendation_note": "Note the search count: zero. The agent decided research could not move this answer, which is the behavior the eval suite checks for.",
+  "reasoning": "The underlying role — first product leader at a funded early-stage AI company — is genuinely attractive if the company is real and well-capitalized. But nothing here is verifiable, and the gaps are the kind only the employer can close: who they are, what they build, what the scope actually is, and what the band is. Worth one exploratory conversation to force disclosure, not worth building an application against.",
+  "strengths": [
+    "0→1 ownership and comfort with ambiguity are a genuine match for early-stage product work",
+    "The breadth requested — product plus GTM plus design input — matches a demonstrated range",
+    "Early equity at a funded company is real upside if the company is what it claims"
+  ],
+  "concerns": [
+    "Scope is undefined: \"a bit of everything else\" and \"maybe some hands-on work\" describe no particular job",
+    "No compensation band, deferred until after contact",
+    "\"Remote-ish\" with regular gatherings could mean a de facto hub requirement",
+    "\"Maybe some hands-on work\" raises the risk of substituting for an engineering team"
+  ],
+  "research_summary": "No searches performed. The employer is anonymous and the posting contains no company name, product, investor or founder to search on, so no external lookup could change the recommendation.",
+  "agent_trace": [
+    { "type": "model_decision", "message": "Several material facts are missing: company identity, funding stage, comp band, team size, and what \"hands-on\" means. Missing information is not automatically a reason to search — the question is whether a search could close any of these gaps." },
+    { "type": "model_decision", "message": "The posting names no company, no product, no investor and no founder. There is no searchable handle, and the remaining gaps — the band, the reporting line, the real location expectation — are things only the employer can answer. A search here would burn a call and return nothing that moves the recommendation. Not searching." },
+    { "type": "recommendation", "message": "MAYBE" }
+  ],
+  "workflow_trace": [
+    { "stage": "Evidence Map", "detail": "5 requirements mapped; the posting is too vague to support more" },
+    { "stage": "Resume", "detail": "Drafted against generalist 0→1 framing" },
+    { "stage": "Factuality Review", "detail": "18 claims checked; all supported" },
+    { "stage": "Cover Letter", "detail": "Written to ask for disclosure rather than to persuade" },
+    { "stage": "Interview Strategy", "detail": "Framed as candidate-side due diligence" }
+  ],
+  "evidence_map": [
+    { "requirement": "0→1 product ownership", "priority": "HIGH", "evidence": "Led AI meeting summarization from discovery through phased rollout", "source": "JPMorgan Chase — meeting summarization", "metric": "6+ interviews to 3 templates, ~5,000 advisor rollout", "strength": "STRONG", "gap": "—" },
+    { "requirement": "Comfort with ambiguity", "priority": "HIGH", "evidence": "Defined evaluation criteria where no definition of correct existed", "source": "JPMorgan Chase — LLM evaluation framework", "metric": "12 criteria, 36 scenarios", "strength": "STRONG", "gap": "—" },
+    { "requirement": "Breadth across product, GTM and design", "priority": "MEDIUM", "evidence": "Owned marketplace surfaces spanning supply, discovery, documents, mobile and notifications; coordinated partner GTM", "source": "Axial", "metric": "60% of deal flow automated", "strength": "STRONG", "gap": "—" },
+    { "requirement": "AI/ML familiarity", "priority": "MEDIUM", "evidence": "LLM + RAG pipeline, generative content with guardrails, evaluation frameworks", "source": "JPMorgan Chase; Axial", "metric": "80% triage reduction", "strength": "STRONG", "gap": "—" },
+    { "requirement": "\"Maybe some hands-on work\"", "priority": "LOW", "evidence": "Technically fluent, builds prototypes and personal agents", "source": "Confluent; personal projects", "metric": "—", "strength": "PARTIAL", "gap": "Not a production engineer, and the posting does not define what hands-on means here" }
+  ],
+  "resume": "# Sofia Tofigh\nNew York, NY · linkedin.com/in/sofia-tofigh/\n\n## Summary\n\nProduct manager with ~4 years of PM experience and a technical consulting foundation. Takes ambiguous problems from discovery to launch across AI, marketplace and infrastructure surfaces, and works directly with engineering rather than through layers.\n\n## Experience\n\n**JPMorgan Chase** — AI Product Manager, Senior Associate (Product Accelerator Garage)\nMarch 2026 – Present · New York, NY\n\n- Led end-to-end delivery of an AI meeting summarization product: 6+ advisor interviews into 3 LLM-powered templates, consent and redaction resolved with Legal, Risk & Compliance, phased rollout serving ~5,000 advisors.\n- Designed an LLM evaluation framework — 36 scenarios, 12 criteria, LLM-as-judge with hard-fail thresholds — reaching ~80% first-run pass rate.\n- Replaced a failing ML classifier (30–60% error rates) with an LLM + RAG pipeline, cutting manual triage from ~50 to ~10 hours/month.\n\n**Axial** — Product Manager\nOctober 2022 – November 2025 · New York, NY\n\n- Owned marketplace surfaces end to end across supply, discovery, documents, mobile and notifications.\n- Shipped partner API integrations automating 60% of platform deal flow and eliminating 10+ hours/week of manual effort.\n- Led a mobile UX initiative across 2 designers and 7 engineers, lifting engagement 127% at launch.\n- Launched AI-written deal headlines with rubric audits and quality guardrails, driving +15% buyer engagement.\n\n**Confluent** — Associate Consulting Engineer\nJune 2021 – October 2022 · Remote\n\n- Technical consulting for Fortune 500 banking and insurance clients on multi-year Apache Kafka adoption strategies.\n\n## Education\n\n**Columbia University** — BA, Economics · September 2015 – May 2019",
+  "factuality_review": { "claims_checked": 18, "supported": 18, "partially_supported": 0, "unsupported": 0, "required_fixes": [], "sample_supported": [ { "claim": "60% of platform deal flow", "verdict": "SUPPORTED", "basis": "verified_resume" }, { "claim": "~4 years of PM experience", "verdict": "SUPPORTED", "basis": "matches the bank's own tenure wording; '6 years' is explicitly banned" } ] },
+  "cover_letter": "I'll be direct about where I am with this one: I can't tell from the posting whether it's a role I'd be good at, because I can't tell what the role is. That isn't a complaint — stealth hiring is a legitimate constraint, and \"we can't say much publicly\" is a reasonable position for an early team. It just means the useful version of this note is a short one.\n\nWhat I can say is what I'd bring to a first product hire. At JPMorgan I built an LLM evaluation framework from nothing, which mostly meant deciding what \"correct\" should mean for a generative product before anyone could measure it. Before that I owned a B2B marketplace end to end — supply integrations that automated 60% of deal flow, a mobile redesign that lifted engagement 127% at launch, AI-written listing content with guardrails that reverted to the original copy when quality was uncertain. That range is the thing that maps to \"wear a lot of hats,\" and it's real rather than aspirational.\n\nIf it's useful, I'd rather have a short call than send a longer application. The things I'd want to understand are the ones the posting can't include: what you're building, what the first product hire actually owns, how big the engineering team is, and roughly where the band sits.\n\nSofia Tofigh",
+  "strategy": {
+    "fit_areas": [
+      "Genuine 0→1 range: discovery, evaluation design, and shipping across unrelated surfaces",
+      "Comfortable defining problems where no playbook exists",
+      "Technical enough to work directly with a small engineering team"
+    ],
+    "gaps": [
+      "The role is undefined, so fit cannot be assessed — this is the company's gap, not the candidate's",
+      "\"Hands-on work\" may mean production engineering, which is outside the profile",
+      "Location expectations are unresolved"
+    ],
+    "emphasize": [
+      "Breadth backed by shipped outcomes rather than by claiming versatility",
+      "Willingness to operate without direction, evidenced by the evaluation work"
+    ],
+    "avoid": [
+      "Enthusiasm about a company whose product is unknown — it reads as unserious",
+      "Committing to scope before the scope is defined"
+    ],
+    "questions": [
+      { "question": "Why are you interested in an early-stage role?", "story": "The evaluation framework — no playbook existed, and that was the appealing part" },
+      { "question": "How do you operate without direction?", "story": "Feedback classification — reframed the problem before touching the model" },
+      { "question": "What would you want to know before joining?", "story": "Use this to surface the disclosure questions: product, scope, team size, band" }
+    ]
+  },
+  "metrics": { "searches": 0, "tool_calls": 0, "agent_turns": 1, "agent_input_tokens": 2010, "agent_output_tokens": 1290, "generation_calls": 6 }
+}

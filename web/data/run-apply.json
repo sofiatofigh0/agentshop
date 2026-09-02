@@ -1,0 +1,101 @@
+{
+  "id": "apply",
+  "label": "Example Run",
+  "mode": "cached",
+  "job": {
+    "company": "Halcyon AI",
+    "title": "Senior Product Manager, Model Evaluation",
+    "location": "New York, NY (hybrid, 2 days)",
+    "text": "Senior Product Manager, Model Evaluation\nHalcyon AI — New York, NY (hybrid, 2 days/week) or remote in US Eastern\n\nHalcyon builds the evaluation layer enterprise teams use to keep LLM deployments reliable. We're hiring a senior PM to own the evaluation product line end to end.\n\nWhat you'll own\n- The roadmap for offline eval runs, regression detection, and human review workflows\n- Defining what \"quality\" means in the product, with our applied research group\n- Weekly contact with customers running evals in production\n\nWho you'll work with\nYou'll report to the VP of Product and work with a dedicated pod of 9 engineers and 2 designers.\n\nWhat we're looking for\n- 4+ years in product management, including developer or infrastructure products\n- Hands-on LLM application experience\n- Comfort defining an ambiguous problem space and taking it to GA\n\nCompensation\n- Base: $190,000 - $235,000\n- Equity, full benefits, 22 days PTO. No on-call rotation for product.\n\n(Fictional company, written for this demo.)"
+  },
+  "recommendation": "APPLY",
+  "reasoning": "This posting matches the target profile almost line for line: senior PM on AI evaluation infrastructure, a dedicated engineering pod, clearly scoped ownership, NYC hybrid or Eastern remote, and a disclosed band. No preference is seriously threatened. The shipped JPMorgan evaluation framework is unusually direct evidence for this exact product line, which makes the candidate a strong applicant rather than a marginal one.",
+  "strengths": [
+    "Owns the same product surface the candidate has already built: eval runs, criteria design, human review",
+    "Dedicated pod of 9 engineers and 2 designers — no substituting for an engineering team",
+    "Disclosed compensation band and no on-call, both stated up front",
+    "NYC hybrid or Eastern remote, no relocation question to resolve"
+  ],
+  "concerns": [
+    "The posting says \"4+ years PM\" and the candidate is at roughly four — at the floor rather than comfortably above it",
+    "Company stage was not stated in the posting; resolved by research below",
+    "Reporting into a VP of Product means the Director path depends on how the team grows"
+  ],
+  "research_summary": "Two searches. The first established that Halcyon AI is a Series B evaluation-tooling company; the second confirmed the NYC office and an active remote-hiring policy for Eastern-time candidates.",
+  "agent_trace": [
+    { "type": "model_decision", "message": "The role, scope, team and compensation are all stated. The one thing missing that could move this recommendation is the company's stage and stability — a Series B with a named product line is a different bet from a pre-seed. That is externally checkable." },
+    { "type": "tool_call", "tool": "search_web", "input": { "query": "Halcyon AI LLM evaluation platform funding stage" } },
+    { "type": "tool_result", "summary": "Halcyon AI is an enterprise LLM evaluation and observability company. Public reporting describes a Series B raise and a customer base of mid-market and enterprise engineering teams. Product coverage focuses on offline evaluation, regression detection and human review workflows." },
+    { "type": "model_decision", "message": "Series B fits the preferred Series A to C range and the product description matches the posting rather than contradicting it. One question remains: the posting offers hybrid or Eastern remote, and whether remote is genuinely available changes how much the location matters." },
+    { "type": "tool_call", "tool": "search_web", "input": { "query": "\"Halcyon AI\" New York office remote hiring policy product" } },
+    { "type": "tool_result", "summary": "Company careers material lists a New York headquarters and describes distributed hiring across US Eastern time, with several product and engineering roles posted as remote-eligible." },
+    { "type": "model_decision", "message": "Both open questions are answered and neither weakens the case. Nothing else in the posting is uncertain enough to change the recommendation, and a third search would cost a call without moving the answer. Stopping here." },
+    { "type": "recommendation", "message": "APPLY" }
+  ],
+  "workflow_trace": [
+    { "stage": "Evidence Map", "detail": "8 requirements mapped to evidence; 5 STRONG, 2 PARTIAL, 1 NONE" },
+    { "stage": "Resume", "detail": "Drafted from the evidence map, evaluation work leading" },
+    { "stage": "Factuality Review", "detail": "23 claims checked against the experience bank; 1 required a fix" },
+    { "stage": "Revision", "detail": "Unsupported claim removed and the resume re-emitted" },
+    { "stage": "Cover Letter", "detail": "Built on the two strongest evidence rows" },
+    { "stage": "Interview Strategy", "detail": "Questions matched to specific prepared stories" }
+  ],
+  "evidence_map": [
+    { "requirement": "LLM evaluation experience", "priority": "HIGH", "evidence": "Designed and ran an LLM evaluation framework for AI-generated meeting summaries", "source": "JPMorgan Chase — LLM evaluation framework", "metric": "36 scenarios across 12 criteria, LLM-as-judge, ~80% first-run pass rate", "strength": "STRONG", "gap": "—" },
+    { "requirement": "Defining product quality in an ambiguous space", "priority": "HIGH", "evidence": "Derived quality standards from advisor expectations rather than assuming them; the hard problem was defining what correct meant", "source": "JPMorgan Chase — LLM evaluation framework", "metric": "12 criteria with hard-fail accuracy thresholds", "strength": "STRONG", "gap": "—" },
+    { "requirement": "Hands-on LLM application experience", "priority": "HIGH", "evidence": "Replaced a failing ML classifier with an LLM + RAG pipeline; shipped customer-facing generative content with guardrails", "source": "JPMorgan Chase — feedback classification; Axial — AI deal headlines", "metric": "Manual triage cut from ~50 to ~10 hours/month (80%)", "strength": "STRONG", "gap": "—" },
+    { "requirement": "Developer or infrastructure product experience", "priority": "HIGH", "evidence": "Shipped partner API integrations; earlier Kafka and event-streaming consulting for Fortune 500 clients", "source": "Axial — partner API integrations; Confluent", "metric": "60% of platform deal flow automated", "strength": "STRONG", "gap": "—" },
+    { "requirement": "Taking an ambiguous area to GA", "priority": "MEDIUM", "evidence": "Led end-to-end delivery of AI meeting summarization from discovery to phased rollout", "source": "JPMorgan Chase — meeting summarization", "metric": "6+ discovery interviews to 3 templates, rollout serving ~5,000 advisors", "strength": "STRONG", "gap": "—" },
+    { "requirement": "Weekly direct customer contact", "priority": "MEDIUM", "evidence": "Advisor discovery interviews and enterprise client consulting", "source": "JPMorgan Chase; Confluent", "metric": "—", "strength": "PARTIAL", "gap": "Customer contact is evidenced, but not as a standing weekly cadence" },
+    { "requirement": "4+ years product management", "priority": "MEDIUM", "evidence": "Axial October 2022 to November 2025, JPMorgan March 2026 to present", "source": "Employment history", "metric": "~4 years direct PM experience", "strength": "PARTIAL", "gap": "At the stated floor rather than comfortably above it" },
+    { "requirement": "Regression detection tooling", "priority": "LOW", "evidence": "—", "source": "—", "metric": "—", "strength": "NONE", "gap": "Evaluation and quality thresholds are evidenced; automated regression detection as a product surface is not" }
+  ],
+  "resume": "# Sofia Tofigh\nNew York, NY · linkedin.com/in/sofia-tofigh/\n\n## Summary\n\nAI product manager with ~4 years of PM experience and an earlier technical consulting foundation in event-streaming infrastructure. Built LLM evaluation from scratch in a regulated environment — defining the quality criteria, not just the prompts. Ships with dedicated engineering teams across evaluation, marketplace and platform surfaces.\n\n## Experience\n\n**JPMorgan Chase** — AI Product Manager, Senior Associate (Product Accelerator Garage)\nMarch 2026 – Present · New York, NY\n\n- Designed and ran an LLM evaluation framework for AI-generated meeting summaries: 36 test scenarios scored by an LLM-as-judge across 12 criteria including factual accuracy, compliance and tone, with hard-fail accuracy thresholds, reaching ~80% first-run pass rate.\n- Replaced a failing ML classification tool (30–60% error rates) with an LLM + RAG pipeline categorizing 400–500 monthly advisor feedback submissions, cutting manual triage from ~50 to ~10 hours/month (80% reduction).\n- Led end-to-end delivery of an AI meeting summarization product: translated discovery from 6+ advisor interviews into 3 LLM-powered summarization templates, resolved client consent and redaction requirements with Legal, Risk & Compliance, and drove a phased rollout serving ~5,000 advisors.\n\n**Axial** — Product Manager\nOctober 2022 – November 2025 · New York, NY\n\n- Launched AI-written deal headlines with rubric-based QA audits and guardrails that defaulted to the original copy when quality was uncertain, driving +15% buyer engagement.\n- Shipped API integrations with the two largest broker partners, automating ingestion for 60% of platform deal flow and eliminating 10+ hours/week of manual effort.\n- Led a mobile UX initiative across 2 designers and 7 engineers, lifting mobile engagement 127% at launch.\n- Integrated GA4 and FullStory across web and mobile, enabling behavioral data-driven roadmap prioritization.\n\n**Confluent** — Associate Consulting Engineer\nJune 2021 – October 2022 · Remote\n\n- Delivered technical consulting for Fortune 500 banking and insurance clients, designing multi-year Apache Kafka adoption strategies that modernized event-streaming infrastructure and met security and compliance requirements.\n\n## Skills\n\nLLM evaluation, LLM-as-judge, rubric design, RAG, prompt iteration, API integrations, Apache Kafka, SQL, GA4, FullStory, Figma\n\n## Education\n\n**Columbia University** — BA, Economics · September 2015 – May 2019",
+  "factuality_review": {
+    "claims_checked": 23,
+    "supported": 22,
+    "partially_supported": 1,
+    "unsupported": 0,
+    "required_fixes": [
+      { "claim": "\"Owned the evaluation roadmap for a 9-person engineering pod\"", "verdict": "PARTIALLY SUPPORTED", "basis": "The bank evidences the evaluation framework and a 2-designer/7-engineer mobile team at a different employer. It does not evidence owning a roadmap for a 9-person pod.", "action": "Removed from the summary before the resume was written to disk." }
+    ],
+    "sample_supported": [
+      { "claim": "36 test scenarios across 12 criteria", "verdict": "SUPPORTED", "basis": "verified_resume — stated on the current resume" },
+      { "claim": "~80% first-run pass rate", "verdict": "SUPPORTED", "basis": "verified_resume, approximate — approximation language retained" },
+      { "claim": "60% of platform deal flow", "verdict": "SUPPORTED", "basis": "verified_resume — exact figure, not restated as 60%+" },
+      { "claim": "mobile engagement 127% at launch", "verdict": "SUPPORTED", "basis": "verified_resume — one of three separate mobile measurements; only this one used" }
+    ]
+  },
+  "cover_letter": "Most evaluation tooling I've seen starts from the model and works outward: score the output, chart the score, ship the dashboard. Halcyon's posting describes the opposite order — defining what quality means with the applied research group, then building the eval around it. That ordering is the whole job, and it's the part almost nobody staffs properly.\n\nI know because I got it wrong first. At JPMorgan I was asked to evaluate AI-generated meeting summaries for financial advisors, and I spent the first stretch improving prompts against a rubric that turned out to be measuring the wrong things. The useful work started when I stopped asking whether output sounded good and went back to advisors to establish what correct actually meant to them — which became 36 test scenarios scored by an LLM-as-judge across 12 criteria, with hard-fail thresholds for the accuracy and compliance cases where \"mostly right\" is worthless. That framework reached ~80% first-run pass rate. Before that I shipped AI-written deal headlines at a marketplace with rubric-based audits and a guardrail that reverted to the original copy whenever quality was uncertain — optimizing for safe improvement rather than generation rate.\n\nThe trajectory reads oddly on paper: Kafka consulting for banks, then a B2B marketplace, then enterprise AI. The through-line is that I've spent most of my career translating between systems that are hard to reason about and the people who have to trust their output. An evaluation product for teams running LLMs in production is the most direct version of that problem I've found.\n\nSofia Tofigh",
+  "strategy": {
+    "fit_areas": [
+      "Built the exact product surface this role owns — evaluation criteria, LLM-as-judge scoring, hard-fail thresholds",
+      "Shipped AI in two very different risk environments: a regulated bank and a customer-facing marketplace",
+      "Technical foundation in streaming infrastructure means credibility with a 9-engineer pod",
+      "Has defined quality in an ambiguous space rather than inheriting a metric"
+    ],
+    "gaps": [
+      "~4 years PM against a 4+ requirement — at the floor",
+      "Automated regression detection is a posting requirement with no direct evidence",
+      "Weekly customer cadence is evidenced as discovery, not as a standing rhythm"
+    ],
+    "emphasize": [
+      "The evaluation framework, led with the criteria design rather than the pass rate",
+      "The reframing instinct: the classification project succeeded because the problem was taxonomy, not model quality",
+      "Willingness to ship a guardrail that reduces AI usage when quality is uncertain"
+    ],
+    "avoid": [
+      "Leading with years of experience — it is the weakest number in the application",
+      "Claiming regression-detection ownership; name it as the thing to learn",
+      "Over-indexing on the marketplace work, which is the least relevant surface here"
+    ],
+    "questions": [
+      { "question": "How do you decide what to measure when there's no existing definition of quality?", "story": "JPMorgan evaluation framework — advisor-derived criteria, 12 dimensions, hard-fail thresholds" },
+      { "question": "Tell me about a time the obvious fix wasn't the real fix.", "story": "Feedback classification — the problem was category definition, not model accuracy; result was 80% less manual triage" },
+      { "question": "How do you ship AI features when you can't fully trust the output?", "story": "Axial AI deal headlines — rubric audits with a fallback to original copy" },
+      { "question": "Describe working with engineers on something technically deep.", "story": "Confluent — multi-year Kafka adoption strategies for Fortune 500 banks" },
+      { "question": "What would your first 90 days here look like?", "story": "Use the JPM rollout arc: discovery interviews, then criteria, then phased rollout with compliance gates" }
+    ]
+  },
+  "metrics": { "searches": 2, "tool_calls": 2, "agent_turns": 4, "agent_input_tokens": 8420, "agent_output_tokens": 1610, "generation_calls": 6 }
+}

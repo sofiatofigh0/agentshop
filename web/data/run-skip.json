@@ -1,0 +1,45 @@
+{
+  "id": "skip",
+  "label": "Example Run",
+  "mode": "cached",
+  "job": {
+    "company": "Vantiq AI",
+    "title": "Founding AI Product Engineer",
+    "location": "Austin, TX (onsite, 6 days/week)",
+    "text": "Founding AI Product Engineer\nVantiq AI — Austin, TX (onsite, 6 days/week)\n\nWe are a pre-seed startup building the future of enterprise AI, looking for a founding team member who will treat this like their own company. This is not a 9-to-5. We work Monday through Saturday in office. If you need work-life balance this is not the role — we're a family here.\n\nResponsibilities: own product strategy and roadmap; write and ship production backend and frontend code; fine-tune and deploy our models; run sales calls and close enterprise customers; handle support and onboarding; manage hiring.\n\nRequirements: 15+ years of machine learning experience; expert-level knowledge of modern LLM tooling and agent frameworks; prior founding experience with a successful exit strongly preferred; available on Slack outside working hours including weekends.\n\nCompensation: equity only for the first 6 months (0.25%–0.5%, subject to board approval), transitioning to market-rate salary once we close our seed round, expected in Q1.\n\nProcess: finalists complete an unpaid two-week trial project. Relocation to Austin required at the candidate's own expense.\n\n(Fictional posting, written for this demo.)"
+  },
+  "recommendation": "SKIP",
+  "reasoning": "The posting asks a senior candidate to absorb nearly all of the risk — six months unpaid, self-funded relocation, an unpaid two-week trial — for sub-founder equity that is not guaranteed. The scope spans six distinct full-time jobs, including replacing an engineering team. Several stated preferences are violated simultaneously, and no external fact would change that.",
+  "strengths": [
+    "Genuinely broad ownership, if the terms were different",
+    "Pre-seed AI product work would exercise the full range of the profile"
+  ],
+  "concerns": [
+    "Six months without salary, plus self-funded relocation and an unpaid two-week trial project",
+    "Scope spans product, engineering, ML, sales, support and hiring — six roles in one",
+    "Explicit rejection of work-life balance, six-day onsite weeks, required off-hours availability",
+    "15+ years ML experience alongside expert modern LLM and agent tooling is internally inconsistent — that tooling has not existed that long",
+    "Equity is below typical founding levels and conditioned on unstated board approval"
+  ],
+  "research_summary": "No searches performed. Every disqualifying term is stated in the posting itself, so no external information could change the recommendation.",
+  "agent_trace": [
+    { "type": "model_decision", "message": "The disqualifying facts here are all stated in the posting, not missing from it: unpaid period, self-funded relocation, unpaid trial, six-day onsite weeks, six-role scope. Research is only worth a call when it could change the answer." },
+    { "type": "model_decision", "message": "Confirming the company's funding or reputation would not rescue these terms — a better-funded company offering the same package is still the same package. No search." },
+    { "type": "recommendation", "message": "SKIP" }
+  ],
+  "workflow_trace": [
+    { "stage": "Generation skipped", "detail": "SKIP verdict — the CLI asks before generating, and the default is no. Nothing was written." }
+  ],
+  "evidence_map": [
+    { "requirement": "15+ years machine learning experience", "priority": "HIGH", "evidence": "—", "source": "—", "metric": "—", "strength": "NONE", "gap": "~4 years PM plus technical consulting. The requirement is also internally inconsistent with the modern LLM tooling asked for alongside it." },
+    { "requirement": "Ship production backend and frontend code", "priority": "HIGH", "evidence": "Technically fluent, builds prototypes", "source": "Confluent; personal projects", "metric": "—", "strength": "NONE", "gap": "Not a production engineer, and explicitly not seeking to substitute for one" },
+    { "requirement": "Fine-tune and deploy models", "priority": "HIGH", "evidence": "LLM + RAG pipelines, evaluation frameworks", "source": "JPMorgan Chase", "metric": "—", "strength": "PARTIAL", "gap": "Product ownership of model systems, not model training or deployment" },
+    { "requirement": "Run sales calls and close enterprise customers", "priority": "HIGH", "evidence": "Enterprise client consulting at Fortune 500 scale", "source": "Confluent", "metric": "—", "strength": "PARTIAL", "gap": "Technical consulting, not quota-carrying sales" },
+    { "requirement": "Prior founding experience with an exit", "priority": "MEDIUM", "evidence": "—", "source": "—", "metric": "—", "strength": "NONE", "gap": "No founding experience or exit" }
+  ],
+  "resume": null,
+  "factuality_review": null,
+  "cover_letter": null,
+  "strategy": null,
+  "metrics": { "searches": 0, "tool_calls": 0, "agent_turns": 1, "agent_input_tokens": 2220, "agent_output_tokens": 1080, "generation_calls": 0 }
+}
