@@ -292,15 +292,17 @@ def main() -> None:
         print("\nGenerating application package...")
         try:
             package = generate_application_package(
-                job_description, recommendation, reasoning, result["research"]
+                job_description, recommendation, reasoning, result["research"],
+                company=parse_field(report, "Company"),
+                role=parse_field(report, "Role"),
             )
         except RuntimeError as exc:
             print(f"\nCould not generate: {exc}")
 
     if package:
-        print("\nWrote:")
+        print(f"\nWrote to {package['run_dir']}/:")
         for path in package["files"].values():
-            print(f"  {path}")
+            print(f"  {os.path.basename(path)}")
 
     # --- trace ------------------------------------------------------------
     # Deliberately does not echo the candidate profile or the job description.

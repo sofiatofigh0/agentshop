@@ -3,3 +3,4 @@ python-dotenv
 weasyprint
 markdown
 pypdf
+flask

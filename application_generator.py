@@ -20,6 +20,8 @@ All model prompts for the generation stage live in this file.
 import copy
 import json
 import os
+import re
+from datetime import datetime
 
 import anthropic
 
@@ -387,12 +389,23 @@ def write_strategy(
 # The pipeline
 # --------------------------------------------------------------------------
 
+def slugify(company: str, role: str) -> str:
+    """A short, sortable folder name for one application."""
+    raw = f"{company}-{role}".lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")[:60] or "application"
+    return f"{datetime.now():%Y-%m-%d}-{slug}"
+
+
 def generate_application_package(
     job_description: str, recommendation: str, reasoning: str, research: str = "",
+    company: str = "", role: str = "", progress=print,
 ) -> dict:
     """Run every generation step in order and write the files.
 
-    Returns the paths written plus call and token counts for the trace.
+    Each run gets its own folder under outputs/, named by date, company and
+    role, so a later run never overwrites an earlier one and the folder name
+    says what the application was for. `progress` receives a line per stage,
+    which is how the web UI shows what the run is doing.
     """
     gaps = missing_fields()
     if gaps:
@@ -404,7 +417,8 @@ def generate_application_package(
         )
 
     # Python owns file creation, not the model.
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    run_dir = os.path.join(OUTPUT_DIR, slugify(company, role))
+    os.makedirs(run_dir, exist_ok=True)
 
     calls = 0
     input_tokens = 0
@@ -424,26 +438,26 @@ def generate_application_package(
         cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
         return text
 
-    print("  building requirement-to-evidence map...")
+    progress("  building requirement-to-evidence map...".strip())
     evidence_map = run(build_evidence_map(job_description, research))
 
-    print("  drafting resume...")
+    progress("  drafting resume...".strip())
     draft = run(write_resume(job_description, evidence_map))
 
-    print("  checking every claim against the experience bank...")
+    progress("  checking every claim against the experience bank...".strip())
     review = run(check_factuality(draft))
 
     if review_found_problems(review):
-        print("  unsupported claims found — revising...")
+        progress("  unsupported claims found — revising...".strip())
         resume = run(revise_resume(draft, review))
     else:
-        print("  all claims supported.")
+        progress("  all claims supported.".strip())
         resume = draft
 
-    print("  writing cover letter...")
+    progress("  writing cover letter...".strip())
     cover_letter = run(write_cover_letter(job_description, evidence_map, research))
 
-    print("  writing application strategy...")
+    progress("  writing application strategy...".strip())
     strategy = run(
         write_strategy(job_description, evidence_map, recommendation, reasoning, research)
     )
@@ -460,21 +474,36 @@ def generate_application_package(
     )
     files = {}
     for key, name, body, style in outputs:
-        path = f"{OUTPUT_DIR}/{name}"
+        path = os.path.join(run_dir, name)
         if style in ("resume", "letter"):
             # One page, achieved by tightening the setting rather than by
             # deleting evidence. Nothing the model wrote is removed.
             pages, pt = fit_pdf(body, path, style)
             if pages > 1:
-                print(f"  {name}: {pages} pages even at {pt}pt — too much content to fit")
+                progress(f"{name}: {pages} pages even at {pt}pt — too much content to fit")
             else:
-                print(f"  {name}: fitted to one page at {pt}pt")
+                progress(f"{name}: fitted to one page at {pt}pt")
         else:
             write_pdf(body, path, style)
 
         files[key] = path
 
+    # A record of what this application was, so months later the folder is not
+    # a mystery. This is the thing that was missing when five identically named
+    # PDFs sat in one directory.
+    with open(os.path.join(run_dir, "run.json"), "w") as handle:
+        json.dump({
+            "company": company,
+            "role": role,
+            "recommendation": recommendation,
+            "reasoning": reasoning,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "job_description": job_description,
+            "research_performed": bool(research),
+        }, handle, indent=2)
+
     return {
+        "run_dir": run_dir,
         "files": files,
         "generation_calls": calls,
         "input_tokens": input_tokens,
