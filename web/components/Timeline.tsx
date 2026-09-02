@@ -30,7 +30,7 @@ function StepRow({ step }: { step: TraceStep }) {
       <li className="step is-tool">
         <span className="tag tool">Tool call</span>
         <code className="q">
-          {step.tool}(&ldquo;{step.input.query}&rdquo;)
+          {step.tool}( {step.input.query} )
         </code>
       </li>
     );

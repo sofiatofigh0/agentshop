@@ -151,12 +151,42 @@ application materials while placeholders remain, because it will not invent fact
 to fill gaps. Then:
 
 ```bash
-python agent.py           # paste a job description, end with END on its own line
+python app.py             # web UI at http://localhost:8000  ← easiest
+python agent.py           # or the terminal: paste a JD, end with END on its own line
 python evals.py           # run the fixture suite instead
 ```
 
-Output lands in `outputs/`, which is gitignored because generated applications
-contain personal information.
+### The local UI
+
+`python app.py` serves a small page on `localhost:8000`. Paste a job
+description, press Run, and watch the stages tick past — a run takes several
+minutes, so the work happens on a background thread and the page polls for
+progress rather than holding an HTTP request open.
+
+When it finishes you get the verdict, the reasoning, any searches the agent
+chose to make, and links to the five PDFs. Past applications stay listed down
+the right-hand side with company, role, date and verdict, so months later you
+can tell what each set of documents was for.
+
+Each run writes to its own folder — `outputs/2026-09-02-addepar-partnerships-product-manager/` —
+alongside a `run.json` recording the company, role, verdict, reasoning and the
+original posting. Nothing is overwritten.
+
+This is not the portfolio demo. It runs the real agent against your real key and
+your private experience bank, so **every run costs money** (roughly $1). The
+server binds to `127.0.0.1` deliberately; it is not built to face the internet.
+
+Output lands in `outputs/` as PDFs, which is gitignored because generated
+applications contain personal information. The resume and cover letter are
+typeset as finished documents; the evidence map, factuality review and strategy
+render as denser internal reports.
+
+PDF rendering uses WeasyPrint. On Linux it installs from pip alone; on macOS it
+also needs its native text stack:
+
+```bash
+brew install pango libffi
+```
 
 ## The web demo
 

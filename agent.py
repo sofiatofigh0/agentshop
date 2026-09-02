@@ -136,6 +136,7 @@ def evaluate(job_description: str) -> dict:
     search_queries = []
     input_tokens = 0
     output_tokens = 0
+    cache_read = 0
 
     # At most MAX_TOOL_CALLS rounds of searching, one round to tell the model its
     # budget is gone, and one round for it to write the final answer. Bounding
@@ -145,12 +146,16 @@ def evaluate(job_description: str) -> dict:
         response = client.messages.create(
             model=MODEL,
             max_tokens=16000,
-            system=SYSTEM_PROMPT,
+            # The system prompt is identical on every turn of every run, so it
+            # is cached and read back cheaply instead of re-billed each time.
+            system=[{"type": "text", "text": SYSTEM_PROMPT,
+                     "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,  # the schemas from tools.py, sent on every turn
             messages=messages,
         )
         input_tokens += response.usage.input_tokens
         output_tokens += response.usage.output_tokens
+        cache_read += getattr(response.usage, "cache_read_input_tokens", 0) or 0
 
         # HOW CLAUDE ASKS FOR A TOOL: it does not call anything itself. It ends
         # its turn with stop_reason == "tool_use" and puts one or more tool_use
@@ -164,6 +169,7 @@ def evaluate(job_description: str) -> dict:
                 "research": "\n\n".join(research_notes),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "cache_read": cache_read,
             }
 
         # The assistant turn must go into the history verbatim, tool_use blocks
@@ -205,6 +211,7 @@ def evaluate(job_description: str) -> dict:
         "research": "\n\n".join(research_notes),
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cache_read": cache_read,
     }
 
 
@@ -285,15 +292,17 @@ def main() -> None:
         print("\nGenerating application package...")
         try:
             package = generate_application_package(
-                job_description, recommendation, reasoning, result["research"]
+                job_description, recommendation, reasoning, result["research"],
+                company=parse_field(report, "Company"),
+                role=parse_field(report, "Role"),
             )
         except RuntimeError as exc:
             print(f"\nCould not generate: {exc}")
 
     if package:
-        print("\nWrote:")
+        print(f"\nWrote to {package['run_dir']}/:")
         for path in package["files"].values():
-            print(f"  {path}")
+            print(f"  {os.path.basename(path)}")
 
     # --- trace ------------------------------------------------------------
     # Deliberately does not echo the candidate profile or the job description.
@@ -304,10 +313,13 @@ def main() -> None:
         print(f"  query:                   {query}")
     print(f"Main agent input tokens:   {result['input_tokens']}")
     print(f"Main agent output tokens:  {result['output_tokens']}")
+    print(f"Cached tokens read:        {result['cache_read']}")
     print(f"Generation calls:          {package['generation_calls'] if package else 0}")
     if package:
         print(f"Generation input tokens:   {package['input_tokens']}")
         print(f"Generation output tokens:  {package['output_tokens']}")
+        print(f"Generation cache written:  {package['cache_written']}")
+        print(f"Generation cache read:     {package['cache_read']}")
 
 
 if __name__ == "__main__":

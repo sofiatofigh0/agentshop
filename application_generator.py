@@ -17,10 +17,15 @@ gets written.
 All model prompts for the generation stage live in this file.
 """
 
+import copy
 import json
 import os
+import re
+from datetime import datetime
 
 import anthropic
+
+from documents import fit_pdf, page_count, write_pdf
 
 from candidate_profile import CANDIDATE_PROFILE
 from experience_bank import EXPERIENCE_BANK, missing_fields
@@ -28,7 +33,29 @@ from experience_bank import EXPERIENCE_BANK, missing_fields
 # Python owns the output paths. The model never chooses where anything is saved.
 OUTPUT_DIR = "outputs"
 
-FACTS = json.dumps(EXPERIENCE_BANK, indent=2)
+def _generation_facts() -> str:
+    """The bank as the generator sees it.
+
+    Two things are removed, which saves tokens AND is safer:
+
+    - `possible_metric_to_validate` blocks. Previously they were sent with an
+      instruction not to use them. Not sending them at all is strictly better:
+      the model cannot misuse a number it never saw.
+    - `interview_stories`. Only the strategy document needs them, so they ride
+      on that one call's user message instead of all six system prompts.
+    """
+    bank = copy.deepcopy(EXPERIENCE_BANK)
+    for role in bank["roles"]:
+        for project in role["projects"]:
+            project.pop("possible_metric_to_validate", None)
+    for project in bank["personal_projects"]:
+        project.pop("possible_metric_to_validate", None)
+    STORIES.extend(bank.pop("interview_stories", []))
+    return json.dumps(bank, indent=2)
+
+
+STORIES: list = []
+FACTS = _generation_facts()
 PROFILE = json.dumps(CANDIDATE_PROFILE, indent=2)
 
 # The rule every writing prompt inherits. Stated once, repeated by reference.
@@ -76,7 +103,21 @@ own. Personal background never enters a resume by default — only where the
 profile's policy says it creates a genuinely relevant narrative."""
 
 
-def _call(system: str, user: str, max_tokens: int = 8000) -> tuple:
+# Everything below is byte-identical on all six generation calls, so it is sent
+# once as a cached prefix and read back at a fraction of the cost on the other
+# five. Prompt caching is prefix-matched, so the stable material must come first
+# and the per-step instructions second — swapping the order caches nothing.
+STABLE_PREFIX = f"""{GROUND_RULES}
+
+EXPERIENCE BANK — the only source of facts about this candidate:
+{FACTS}
+
+CANDIDATE PREFERENCES — context for tone and motivation, never a source of facts:
+{PROFILE}
+"""
+
+
+def _call(step_instructions: str, user: str, max_tokens: int = 8000) -> tuple:
     """One plain model call. Returns (text, usage).
 
     No tools here — this stage is a fixed pipeline, not an agent loop.
@@ -85,7 +126,10 @@ def _call(system: str, user: str, max_tokens: int = 8000) -> tuple:
     response = client.messages.create(
         model=os.environ["ANTHROPIC_MODEL"],
         max_tokens=max_tokens,
-        system=system,
+        system=[
+            {"type": "text", "text": STABLE_PREFIX, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": step_instructions},
+        ],
         messages=[{"role": "user", "content": user}],
     )
     text = "\n".join(b.text for b in response.content if b.type == "text").strip()
@@ -101,9 +145,7 @@ def _call(system: str, user: str, max_tokens: int = 8000) -> tuple:
 # Step 1: requirement -> evidence map
 # --------------------------------------------------------------------------
 
-EVIDENCE_MAP_PROMPT = f"""You map job requirements to concrete evidence.
-
-{GROUND_RULES}
+EVIDENCE_MAP_PROMPT = """You map job requirements to concrete evidence.
 
 Read the job description and produce a markdown table with one row per
 important requirement, strongest first:
@@ -124,12 +166,6 @@ row is more useful than a stretched one.
 After the table, write two short sections: "Strongest angles" (the two or three
 rows to build the whole application around) and "Real gaps" (what genuinely
 isn't there).
-
-EXPERIENCE BANK:
-{FACTS}
-
-CANDIDATE PREFERENCES (context for tone and motivation, not a source of facts):
-{PROFILE}
 """
 
 
@@ -145,23 +181,31 @@ def build_evidence_map(job_description: str, research: str = "") -> tuple:
 # Step 2: resume draft
 # --------------------------------------------------------------------------
 
-RESUME_PROMPT = f"""You write tailored resumes in clean markdown.
-
-{GROUND_RULES}
+RESUME_PROMPT = """You write tailored resumes in clean markdown.
 
 Write a resume for this specific job, guided by the evidence map you are given.
 Rows marked STRONG earn the most space and the highest position; rows marked
 NONE must not be papered over.
 
-Structure: name placeholder, a three-line professional summary aimed at this
-role, then Experience (most relevant first, with the strongest bullets first
-within each role), then Skills, then Education, then anything else that helps.
+Structure: name and contact line, a three-line professional summary aimed at
+this role, then Experience (most relevant first, with the strongest bullets
+first within each role), then Skills, then Education, then anything else that
+helps.
 
 Keep every employer, title and date exactly as the bank states them. Prefer
-bullets that carry a defensible number. Aim for one page of content.
+bullets that carry a defensible number.
 
-EXPERIENCE BANK:
-{FACTS}
+LENGTH: aim for one page — roughly 600 words. Spend them where the evidence map
+says STRONG: the most relevant role earns four or five bullets, the next two or
+three, older or less relevant roles one or two. Write it tight, but do not drop
+evidence the job actually asks for in order to hit a word count; the renderer
+tightens the typography to fit whatever you write onto a single page.
+
+This is a document the candidate submits to an employer. It must contain ONLY
+the resume. Never add a section assessing fit, listing gaps, weaknesses,
+caveats, "honest notes", or anything else addressed to the candidate rather
+than the employer — the gaps belong in the evidence map and the strategy
+document, which the employer never sees. End after the last resume section.
 """
 
 
@@ -178,7 +222,7 @@ def write_resume(job_description: str, evidence_map: str) -> tuple:
 # Step 3: factuality check — deliberately a separate call
 # --------------------------------------------------------------------------
 
-FACTUALITY_PROMPT = f"""You are a factuality reviewer. You did not write this
+FACTUALITY_PROMPT = """You are a factuality reviewer. You did not write this
 resume and you have no interest in it looking good.
 
 Go through the draft claim by claim — every employer, title, date, metric,
@@ -210,9 +254,6 @@ write a section headed exactly "REQUIRED FIXES" listing each PARTIALLY
 SUPPORTED or UNSUPPORTED claim and how to correct it — usually by cutting it or
 weakening it to what the bank actually says. If everything checks out, write
 "REQUIRED FIXES" followed by "None."
-
-EXPERIENCE BANK:
-{FACTS}
 """
 
 
@@ -221,15 +262,10 @@ def check_factuality(resume_draft: str) -> tuple:
     return _call(FACTUALITY_PROMPT, f"DRAFT RESUME:\n{resume_draft}")
 
 
-REVISION_PROMPT = f"""You are correcting a resume that failed a factuality
+REVISION_PROMPT = """You are correcting a resume that failed a factuality
 review. Apply every fix the review asks for — cut or weaken the offending
 claims — and change nothing else. Return the corrected resume in full, in
 markdown, with no commentary.
-
-{GROUND_RULES}
-
-EXPERIENCE BANK:
-{FACTS}
 """
 
 
@@ -258,24 +294,43 @@ def review_found_problems(review: str) -> bool:
 # Step 4: cover letter
 # --------------------------------------------------------------------------
 
-COVER_LETTER_PROMPT = f"""You write short, specific cover letters.
+COVER_LETTER_PROMPT = """You write short, specific cover letters.
 
-{GROUND_RULES}
-
-Write a cover letter for this role. Under 400 words. Build it on the two or
+Write a cover letter for this role. Under 330 words — it must fit on one
+printed page with the letterhead, and shorter reads more confident anyway. Build it on the two or
 three strongest rows of the evidence map — do not restate the resume bullet by
-bullet. Be concrete about why this company and this role, using the research if
-any was gathered and skipping that angle entirely if it would be generic.
+bullet. Be concrete about why this company and this role.
+
+COMPANY RESEARCH IS UNVERIFIED. It came from a web search and nothing has
+checked it. Use it for FRAMING ONLY — to decide which of the company's problems
+to engage with and which angle to take. Never ASSERT it in the letter. Do not
+name acquisitions, funding rounds, executives, launches, product names,
+headcount, or quotes that came from research, and do not paraphrase them as
+though they were established. Getting one of those wrong in a cover letter is
+worse than omitting it, and the reader knows their own company better than the
+search does.
+
+  Good: research indicates an evaluation-tooling company, so the letter engages
+        with what it takes to make generative output trustworthy at scale.
+  Bad:  "your recent Series B", "post-Arcus", "as your CTO said last month".
+
+Every concrete fact stated in the letter must come from either the job
+description itself — which the reader wrote, so it is safe to reference — or the
+candidate's own experience bank.
 
 No "I am excited to apply", no "passionate about", no flattery the candidate
 could not defend in a room. Open with the specific reason they are a fit, spend
 the middle on evidence, and close with a plain statement of interest.
 
-EXPERIENCE BANK:
-{FACTS}
+Format it as a letter. Begin with exactly these two lines, which become the
+letterhead:
 
-CANDIDATE PREFERENCES (what genuinely motivates them):
-{PROFILE}
+# <candidate name>
+<location> · <email> · <phone> · <linkedin>
+
+Then the greeting, the body paragraphs, and the candidate's name to sign off.
+Take the contact details from the experience bank's identity block; omit any
+that are empty rather than inventing them.
 """
 
 
@@ -290,9 +345,7 @@ def write_cover_letter(job_description: str, evidence_map: str, research: str = 
 # Step 5: application strategy
 # --------------------------------------------------------------------------
 
-STRATEGY_PROMPT = f"""You brief candidates before they apply.
-
-{GROUND_RULES}
+STRATEGY_PROMPT = """You brief candidates before they apply.
 
 Write a strategy document in markdown with exactly these sections, in order:
 
@@ -308,15 +361,12 @@ Write a strategy document in markdown with exactly these sections, in order:
 
 Under "Likely interview questions", give each question its own line and name
 the specific experience from the bank that should answer it. Under "Company-
-specific notes from research", write "No research was gathered." if none was.
+specific notes from research", write "No research was gathered." if none was —
+and where research is included, mark it as unverified and worth confirming,
+since this document is the candidate's own briefing rather than something the
+employer sees.
 
 Be direct about the gaps. A brief that only flatters is useless.
-
-EXPERIENCE BANK:
-{FACTS}
-
-CANDIDATE PREFERENCES:
-{PROFILE}
 """
 
 
@@ -327,7 +377,8 @@ def write_strategy(
     user = (
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"EVIDENCE MAP:\n{evidence_map}\n\n"
-        f"THE AGENT'S VERDICT: {recommendation}\nITS REASONING: {reasoning}"
+        f"THE AGENT'S VERDICT: {recommendation}\nITS REASONING: {reasoning}\n\n"
+        f"PREPARED INTERVIEW STORIES:\n{json.dumps(STORIES, indent=2)}"
     )
     if research:
         user += f"\n\nCOMPANY RESEARCH:\n{research}"
@@ -338,12 +389,23 @@ def write_strategy(
 # The pipeline
 # --------------------------------------------------------------------------
 
+def slugify(company: str, role: str) -> str:
+    """A short, sortable folder name for one application."""
+    raw = f"{company}-{role}".lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")[:60] or "application"
+    return f"{datetime.now():%Y-%m-%d}-{slug}"
+
+
 def generate_application_package(
     job_description: str, recommendation: str, reasoning: str, research: str = "",
+    company: str = "", role: str = "", progress=print,
 ) -> dict:
     """Run every generation step in order and write the files.
 
-    Returns the paths written plus call and token counts for the trace.
+    Each run gets its own folder under outputs/, named by date, company and
+    role, so a later run never overwrites an earlier one and the folder name
+    says what the application was for. `progress` receives a line per stage,
+    which is how the web UI shows what the run is doing.
     """
     gaps = missing_fields()
     if gaps:
@@ -355,64 +417,97 @@ def generate_application_package(
         )
 
     # Python owns file creation, not the model.
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    run_dir = os.path.join(OUTPUT_DIR, slugify(company, role))
+    os.makedirs(run_dir, exist_ok=True)
 
     calls = 0
     input_tokens = 0
     output_tokens = 0
+    cache_written = 0
+    cache_read = 0
 
     def run(step):
-        nonlocal calls, input_tokens, output_tokens
+        nonlocal calls, input_tokens, output_tokens, cache_written, cache_read
         text, usage = step
         calls += 1
         input_tokens += usage.input_tokens
         output_tokens += usage.output_tokens
+        # If cache_read stays at zero across a run, something is silently
+        # invalidating the prefix and the saving is not happening.
+        cache_written += getattr(usage, "cache_creation_input_tokens", 0) or 0
+        cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
         return text
 
-    print("  building requirement-to-evidence map...")
+    progress("  building requirement-to-evidence map...".strip())
     evidence_map = run(build_evidence_map(job_description, research))
 
-    print("  drafting resume...")
+    progress("  drafting resume...".strip())
     draft = run(write_resume(job_description, evidence_map))
 
-    print("  checking every claim against the experience bank...")
+    progress("  checking every claim against the experience bank...".strip())
     review = run(check_factuality(draft))
 
     if review_found_problems(review):
-        print("  unsupported claims found — revising...")
+        progress("  unsupported claims found — revising...".strip())
         resume = run(revise_resume(draft, review))
     else:
-        print("  all claims supported.")
+        progress("  all claims supported.".strip())
         resume = draft
 
-    print("  writing cover letter...")
+    progress("  writing cover letter...".strip())
     cover_letter = run(write_cover_letter(job_description, evidence_map, research))
 
-    print("  writing application strategy...")
+    progress("  writing application strategy...".strip())
     strategy = run(
         write_strategy(job_description, evidence_map, recommendation, reasoning, research)
     )
 
-    files = {
-        "evidence_map": f"{OUTPUT_DIR}/evidence_map.md",
-        "factuality_review": f"{OUTPUT_DIR}/factuality_review.md",
-        "resume": f"{OUTPUT_DIR}/tailored_resume.md",
-        "cover_letter": f"{OUTPUT_DIR}/cover_letter.md",
-        "strategy": f"{OUTPUT_DIR}/application_strategy.md",
-    }
-    for key, body in (
-        ("evidence_map", evidence_map),
-        ("factuality_review", review),
-        ("resume", resume),
-        ("cover_letter", cover_letter),
-        ("strategy", strategy),
-    ):
-        with open(files[key], "w") as handle:
-            handle.write(body + "\n")
+    # The model writes markdown; documents.py decides how each one looks. The
+    # two documents an employer receives get document typography; the internal
+    # working files get a denser report layout.
+    outputs = (
+        ("resume", "tailored_resume.pdf", resume, "resume"),
+        ("cover_letter", "cover_letter.pdf", cover_letter, "letter"),
+        ("evidence_map", "evidence_map.pdf", evidence_map, "report"),
+        ("factuality_review", "factuality_review.pdf", review, "report"),
+        ("strategy", "application_strategy.pdf", strategy, "report"),
+    )
+    files = {}
+    for key, name, body, style in outputs:
+        path = os.path.join(run_dir, name)
+        if style in ("resume", "letter"):
+            # One page, achieved by tightening the setting rather than by
+            # deleting evidence. Nothing the model wrote is removed.
+            pages, pt = fit_pdf(body, path, style)
+            if pages > 1:
+                progress(f"{name}: {pages} pages even at {pt}pt — too much content to fit")
+            else:
+                progress(f"{name}: fitted to one page at {pt}pt")
+        else:
+            write_pdf(body, path, style)
+
+        files[key] = path
+
+    # A record of what this application was, so months later the folder is not
+    # a mystery. This is the thing that was missing when five identically named
+    # PDFs sat in one directory.
+    with open(os.path.join(run_dir, "run.json"), "w") as handle:
+        json.dump({
+            "company": company,
+            "role": role,
+            "recommendation": recommendation,
+            "reasoning": reasoning,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "job_description": job_description,
+            "research_performed": bool(research),
+        }, handle, indent=2)
 
     return {
+        "run_dir": run_dir,
         "files": files,
         "generation_calls": calls,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "cache_written": cache_written,
+        "cache_read": cache_read,
     }
