@@ -23,7 +23,7 @@ import os
 
 import anthropic
 
-from documents import write_pdf
+from documents import fit_pdf, page_count, write_pdf
 
 from candidate_profile import CANDIDATE_PROFILE
 from experience_bank import EXPERIENCE_BANK, missing_fields
@@ -191,7 +191,13 @@ first within each role), then Skills, then Education, then anything else that
 helps.
 
 Keep every employer, title and date exactly as the bank states them. Prefer
-bullets that carry a defensible number. Aim for one page of content.
+bullets that carry a defensible number.
+
+LENGTH: aim for one page — roughly 600 words. Spend them where the evidence map
+says STRONG: the most relevant role earns four or five bullets, the next two or
+three, older or less relevant roles one or two. Write it tight, but do not drop
+evidence the job actually asks for in order to hit a word count; the renderer
+tightens the typography to fit whatever you write onto a single page.
 
 This is a document the candidate submits to an employer. It must contain ONLY
 the resume. Never add a section assessing fit, listing gaps, weaknesses,
@@ -288,10 +294,27 @@ def review_found_problems(review: str) -> bool:
 
 COVER_LETTER_PROMPT = """You write short, specific cover letters.
 
-Write a cover letter for this role. Under 400 words. Build it on the two or
+Write a cover letter for this role. Under 330 words — it must fit on one
+printed page with the letterhead, and shorter reads more confident anyway. Build it on the two or
 three strongest rows of the evidence map — do not restate the resume bullet by
-bullet. Be concrete about why this company and this role, using the research if
-any was gathered and skipping that angle entirely if it would be generic.
+bullet. Be concrete about why this company and this role.
+
+COMPANY RESEARCH IS UNVERIFIED. It came from a web search and nothing has
+checked it. Use it for FRAMING ONLY — to decide which of the company's problems
+to engage with and which angle to take. Never ASSERT it in the letter. Do not
+name acquisitions, funding rounds, executives, launches, product names,
+headcount, or quotes that came from research, and do not paraphrase them as
+though they were established. Getting one of those wrong in a cover letter is
+worse than omitting it, and the reader knows their own company better than the
+search does.
+
+  Good: research indicates an evaluation-tooling company, so the letter engages
+        with what it takes to make generative output trustworthy at scale.
+  Bad:  "your recent Series B", "post-Arcus", "as your CTO said last month".
+
+Every concrete fact stated in the letter must come from either the job
+description itself — which the reader wrote, so it is safe to reference — or the
+candidate's own experience bank.
 
 No "I am excited to apply", no "passionate about", no flattery the candidate
 could not defend in a room. Open with the specific reason they are a fit, spend
@@ -336,7 +359,10 @@ Write a strategy document in markdown with exactly these sections, in order:
 
 Under "Likely interview questions", give each question its own line and name
 the specific experience from the bank that should answer it. Under "Company-
-specific notes from research", write "No research was gathered." if none was.
+specific notes from research", write "No research was gathered." if none was —
+and where research is included, mark it as unverified and worth confirming,
+since this document is the candidate's own briefing rather than something the
+employer sees.
 
 Be direct about the gaps. A brief that only flatters is useless.
 """
@@ -435,7 +461,17 @@ def generate_application_package(
     files = {}
     for key, name, body, style in outputs:
         path = f"{OUTPUT_DIR}/{name}"
-        write_pdf(body, path, style)
+        if style in ("resume", "letter"):
+            # One page, achieved by tightening the setting rather than by
+            # deleting evidence. Nothing the model wrote is removed.
+            pages, pt = fit_pdf(body, path, style)
+            if pages > 1:
+                print(f"  {name}: {pages} pages even at {pt}pt — too much content to fit")
+            else:
+                print(f"  {name}: fitted to one page at {pt}pt")
+        else:
+            write_pdf(body, path, style)
+
         files[key] = path
 
     return {
