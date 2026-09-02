@@ -28,6 +28,12 @@ certifications, revenue ownership, customers, promotions, funding events, or
 projects. If a job requires something absent here, it is a gap — say so.
 """
 
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ---------------------------------------------------------------------------
 # Identity. Email and phone come only from Sofia's existing resume/profile
 # configuration and are never printed to logs or traces.
@@ -41,8 +47,10 @@ IDENTITY = {
     "name": "Sofia Tofigh",
     "location": "New York, NY",
     "linkedin": "linkedin.com/in/sofia-tofigh/",
-    "email": "sofiatofigh0@gmail.com",
-    "phone": "+1 (929) 335-1639",
+    # Read from the environment, never committed — this repo is public.
+    # Set CANDIDATE_EMAIL and CANDIDATE_PHONE in .env (gitignored).
+    "email": os.environ.get("CANDIDATE_EMAIL", ""),
+    "phone": os.environ.get("CANDIDATE_PHONE", ""),
     "portfolio": "",
     "contact_source": "verified_resume",
     "contact_logging_policy": "never log, trace, or print these fields",

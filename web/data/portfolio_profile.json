@@ -1,0 +1,54 @@
+{
+  "_note": "SANITIZED PUBLIC PROFILE. This is the only candidate data the web demo reads. It contains public professional history only. The private candidate_profile.py and experience_bank.py used by the CLI are never imported here, never bundled, and never served.",
+  "excluded_by_design": [
+    "phone number",
+    "email address",
+    "private career commentary and personal preferences",
+    "unvalidated metrics",
+    "internal or confidential employer information",
+    "the full experience bank"
+  ],
+  "name": "Sofia Tofigh",
+  "location": "New York, NY",
+  "linkedin": "linkedin.com/in/sofia-tofigh/",
+  "summary": "Product manager with a technical foundation, working across enterprise AI, marketplaces, fintech and data infrastructure.",
+  "roles": [
+    {
+      "company": "JPMorgan Chase",
+      "title": "AI Product Manager, Senior Associate",
+      "dates": "March 2026 - Present",
+      "highlights": [
+        "AI meeting summarization for financial advisors, shipped through Legal, Risk and Compliance",
+        "LLM evaluation framework: 36 test scenarios scored by an LLM-as-judge across 12 criteria with hard-fail thresholds",
+        "Replaced a legacy ML classifier with an LLM + RAG pipeline, cutting manual triage 80%"
+      ]
+    },
+    {
+      "company": "Axial",
+      "title": "Product Manager",
+      "dates": "October 2022 - November 2025",
+      "highlights": [
+        "Partner API integrations automating ingestion for 60% of platform deal flow",
+        "Mobile redesign across 2 designers and 7 engineers, lifting engagement 127% at launch",
+        "AI-written deal headlines with rubric-based QA and a fallback to original copy",
+        "Document workflow automation and notification infrastructure migration"
+      ]
+    },
+    {
+      "company": "Confluent",
+      "title": "Associate Consulting Engineer",
+      "dates": "June 2021 - October 2022",
+      "highlights": [
+        "Technical consulting for Fortune 500 banking and insurance clients",
+        "Multi-year Apache Kafka adoption strategies for event-streaming modernization"
+      ]
+    }
+  ],
+  "personal_projects": [
+    {
+      "name": "Job Opportunity Agent",
+      "note": "This project. Python, Anthropic API, tool use, evals, no agent framework."
+    }
+  ],
+  "education": { "institution": "Columbia University", "credential": "BA, Economics", "dates": "September 2015 - May 2019" }
+}

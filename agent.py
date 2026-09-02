@@ -236,7 +236,7 @@ def read_job_description() -> str:
     Terminated by a line containing only END, or by end-of-input (ctrl-D), so
     the script also works when a file is piped in.
     """
-    print("Paste job description below.")
+    print("Paste the full job description below.")
     print("When finished, type END on a new line.\n")
     lines = []
     for line in sys.stdin:

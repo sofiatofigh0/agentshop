@@ -1,27 +1,59 @@
 # Job Opportunity Agent
 
-A small tool-using agent that decides whether a job is worth pursuing. You paste
-in a job description; the agent reads it, pulls out the facts that matter —
-company, role, location, compensation, requirements, responsibilities — and then
-asks itself whether that is actually enough to judge the opportunity. Often it
-isn't: the posting says "competitive salary", or names a company you've never
-heard of. At that point the agent can reach for a research tool, look something
-up, read the result, and decide whether it needs another lookup before it commits
-to an answer.
+An agent that evaluates whether a role is worth pursuing, selectively researches
+missing information, and turns a candidate's experience into a tailored
+application package.
 
-It ends with one recommendation — **APPLY**, **MAYBE**, or **SKIP** — plus the
-reasoning behind it, the strongest fit areas, the gaps and risks worth knowing
-about, and what the candidate should emphasize if they do apply.
+Two things live in this repo: a **Python CLI** that does the real work, and a
+**Next.js portfolio demo** in `web/` that explains the architecture to a visitor
+in a couple of minutes. The CLI is the product; the demo is the exhibit. Neither
+depends on the other.
 
-This is a learning project, so the point is the mechanics rather than the output.
-Everything is plain Python and the Anthropic SDK — no LangChain, no CrewAI, no
-agent framework — so that every part of the loop is visible and editable. Two
-small files hold the whole system.
+## The problem
 
-## The loop
+Reading a job posting and deciding whether to apply is a judgement call made
+dozens of times, badly, under time pressure. Most of it is mechanical — extract
+the facts, check them against what you want, notice what's missing. The part
+that isn't mechanical is knowing when the missing information actually matters
+enough to go find out.
 
-The thing that makes this an agent rather than a prompt is that control flow is
-decided by the model, not by us:
+## Why an agent
+
+Most of this could be a single prompt. One part could not: deciding whether to
+research the company, what to ask, and whether the answer was enough. That
+decision depends on what the posting turned out to say, which is unknowable when
+you write the code. So the model owns it.
+
+Everything else — how many searches are allowed, when the loop stops, which
+documents get produced, whether an unsupported claim survives — is fixed, so
+Python owns it.
+
+**The model controls judgment. Software controls the execution envelope.**
+
+## Architecture
+
+```
+agent.py                  orchestration, the agent loop, interactive input
+tools.py                  the search_web tool: schema + implementation
+candidate_profile.py      what Sofia wants — preferences, goals, constraints
+experience_bank.py        what Sofia has done — the factual source of truth
+application_generator.py  deterministic resume / letter / strategy pipeline
+sample_jobs.py            fixtures for the eval suite
+evals.py                  the eval harness
+outputs/                  generated materials (gitignored)
+web/                      the portfolio demo (see web section below)
+```
+
+Two files hold facts and they are deliberately separate. `candidate_profile.py`
+is *preference* — it decides APPLY / MAYBE / SKIP. `experience_bank.py` is
+*evidence* — it is the only thing generated materials may draw on. Nothing
+written into a resume can come from the profile.
+
+### Agent vs workflow
+
+**Phase 1 is an agent.** The model reads the posting against the profile,
+decides whether external information could change the answer, writes its own
+query if so, reads the result, and decides whether to search again.
 
 ```
 send the job description + tool definitions
@@ -32,63 +64,156 @@ send the job description + tool definitions
                                                     ◄───────────┘
 ```
 
-We own the loop; the model owns the decisions inside it. How many lookups happen,
-and whether any happen at all, is not something the code decides in advance.
-
-## Structure
+**Phase 2 is a workflow.** Once a role is worth pursuing, the steps are fixed:
 
 ```
-agent.py                  orchestration, the agent loop, interactive input
-tools.py                  the search_web tool: schema + implementation
-candidate_profile.py      what you want — preferences, goals, constraints
-experience_bank.py        what you have done — the factual source of truth
-application_generator.py  deterministic resume / letter / strategy pipeline
-sample_jobs.py            fixtures for the eval suite
-evals.py                  the eval harness
-outputs/                  generated materials (gitignored)
+evidence map -> resume draft -> factuality review -> forced revision if needed
+             -> cover letter -> application strategy
 ```
 
-Two files hold facts about you and they are deliberately separate.
-`candidate_profile.py` is preference — it decides APPLY / MAYBE / SKIP.
-`experience_bank.py` is evidence — it is the only thing generated materials may
-draw on. Nothing written into a resume can come from the profile.
+The evidence map comes first deliberately. Asking for a resume directly produces
+keyword stuffing; asking first which requirement each experience answers, and
+how strongly, forces the selection to be justified before a word gets written.
 
-## Quickstart
+### The tool-use loop
+
+The loop reads `stop_reason`. If it is `"tool_use"`, it runs the requested tool,
+appends the assistant turn verbatim plus matching `tool_result` blocks, and calls
+again. Anything else means the model is done.
+
+The number of searches is not something the code decides — but the ceiling is.
+`MAX_TOOL_CALLS = 3` is enforced in Python, so "cannot search forever" is a
+guarantee rather than an instruction in a prompt.
+
+### Factual guardrails
+
+The writer never signs off on its own work:
+
+1. A requirement-to-evidence map, written before any prose
+2. A resume drafted from that map
+3. A **separate** model call, with its own system prompt, that reads the draft
+   against the experience bank and labels every claim SUPPORTED / PARTIALLY
+   SUPPORTED / UNSUPPORTED
+4. Plain Python reads that verdict and forces a revision pass if anything failed
+5. Only the survivor is written to disk
+
+The bank also tags every claim with provenance — `verified_resume`,
+`candidate_provided`, `supported_inference`, or `needs_validation`. The last is
+never usable in a document, however hedged.
+
+## Eval design
+
+`evals.py` runs four fixture postings and scores two different things:
+
+- **Outcome quality** — was the APPLY / MAYBE / SKIP correct?
+- **Trajectory quality** — was research useful when it happened? Were there
+  unnecessary searches? How many tool calls, how many tokens, and is behavior
+  stable across runs?
+
+A correct final answer reached through unnecessary searches is still poor agent
+behavior. Scoring only the verdict hides that.
+
+## Key iterations
+
+1. **V1** — a single LLM call, as a control.
+2. **V2** — added the search tool and the loop. It searched far too eagerly.
+3. **Fix** — search only when external information could materially change the
+   recommendation.
+4. **Regression** — one sentence in that rule ("prefer answering with no
+   searches at all") suppressed searching entirely. Verdict accuracy never
+   moved, so outcome scoring alone would have missed it. The trajectory column
+   caught it.
+5. **Fix** — removed that sentence. Selective search returned.
+6. **The deeper one** — a failure that looked like a prompting problem was
+   actually the candidate schema: hard constraints and preferences were
+   represented identically, so one soft mismatch could reject an excellent role.
+   Separating them improved reasoning more than any prompt edit.
+
+## Limitations
+
+- Four eval fixtures. Enough to catch regressions, not to measure quality.
+- Tool-use behavior varies between runs on identical input.
+- The factuality check is a second model call, not a formal verifier.
+- Reported token counts exclude the nested calls inside `search_web`, so a
+  searching run costs more than the trace shows.
+- One search tool, one candidate. A personal workflow, not a product.
+
+## Running the CLI
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # then fill in ANTHROPIC_API_KEY and ANTHROPIC_MODEL
+cp .env.example .env      # fill in ANTHROPIC_API_KEY and ANTHROPIC_MODEL
 ```
 
-Fill in `experience_bank.py` with your real experience — the agent refuses to
-generate application materials while placeholders remain, because it will not
-invent facts to fill the gaps. Then:
+Fill in `experience_bank.py` with real experience — the agent refuses to generate
+application materials while placeholders remain, because it will not invent facts
+to fill gaps. Then:
 
 ```bash
 python agent.py           # paste a job description, end with END on its own line
 python evals.py           # run the fixture suite instead
 ```
 
-If the verdict is APPLY or MAYBE the package is generated automatically; on a
-SKIP you are asked, and the default is no. Everything lands in `outputs/`,
-which is gitignored because generated applications contain personal
-information.
+Output lands in `outputs/`, which is gitignored because generated applications
+contain personal information.
 
-## Factual guardrails
+## The web demo
 
-Generated materials go through a fixed pipeline, and the model does not get to
-approve its own work:
+```bash
+cd web
+npm install
+npm run dev               # http://localhost:3000
+```
 
-1. a requirement-to-evidence map, written before any prose, so selection has to
-   be justified rather than keyword-matched
-2. a resume drafted from that map
-3. a separate factuality call that reads the draft against the experience bank
-   and labels every claim SUPPORTED / PARTIALLY SUPPORTED / UNSUPPORTED
-4. Python reads that verdict and forces a revision pass if anything failed
-5. only then is the file written
+### Demo mode (the default)
 
-## Status
+Demo mode makes **zero API calls**. It needs no key at all. Three prerecorded
+runs — APPLY, MAYBE and SKIP — are imported at build time and replayed, so a
+portfolio visitor can explore the whole system without anyone spending credits.
+Companies in the sample postings are fictional.
 
-Working. The eval suite covers the evaluation half; the generation half is
-exercised by running it.
+The demo reads `web/data/portfolio_profile.json`, a sanitized public profile
+containing professional history only. The private `candidate_profile.py` and
+`experience_bank.py` are never imported, bundled, or served.
+
+### Enabling live mode
+
+Live mode is off unless the server env var is exactly `true`:
+
+```bash
+# web/.env.local — server-side only, never NEXT_PUBLIC_
+ENABLE_LIVE_DEMO=true
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-opus-5
+MAX_JD_CHARS=12000
+MAX_SEARCHES=2
+```
+
+The guards in `web/app/api/run/route.ts` are implemented: the live flag, JD
+length cap, per-IP throttle, and error handling. **The agent loop itself is not
+yet ported to the web backend** — the route fails closed with a clear message
+rather than pretending. Porting it means either reimplementing the loop with
+`@anthropic-ai/sdk` against the sanitized profile, or deploying the Python side
+as a service and proxying to it.
+
+Before exposing live mode publicly, replace the in-memory rate limiter with a
+durable store (Vercel KV, Upstash). It resets on cold start and is not shared
+between instances — it slows casual abuse and nothing more.
+
+### Deploying
+
+The `web/` directory is a self-contained Next.js app.
+
+**Vercel** — import the repo, set the root directory to `web`, deploy. Demo mode
+needs no environment variables. Add the live-mode variables only if you want it.
+
+**Netlify** — same, with base directory `web`, build `npm run build`, and the
+Next.js plugin.
+
+Visitor job descriptions are used for the request and dropped. Nothing writes
+them to disk, a database, or a log.
+
+## Screenshots
+
+TODO — add screenshots of the execution timeline, evidence map and resume tabs.
