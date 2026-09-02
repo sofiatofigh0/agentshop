@@ -155,8 +155,17 @@ python agent.py           # paste a job description, end with END on its own lin
 python evals.py           # run the fixture suite instead
 ```
 
-Output lands in `outputs/`, which is gitignored because generated applications
-contain personal information.
+Output lands in `outputs/` as PDFs, which is gitignored because generated
+applications contain personal information. The resume and cover letter are
+typeset as finished documents; the evidence map, factuality review and strategy
+render as denser internal reports.
+
+PDF rendering uses WeasyPrint. On Linux it installs from pip alone; on macOS it
+also needs its native text stack:
+
+```bash
+brew install pango libffi
+```
 
 ## The web demo
 

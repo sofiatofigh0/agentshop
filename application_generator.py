@@ -23,6 +23,8 @@ import os
 
 import anthropic
 
+from documents import write_pdf
+
 from candidate_profile import CANDIDATE_PROFILE
 from experience_bank import EXPERIENCE_BANK, missing_fields
 
@@ -294,6 +296,16 @@ any was gathered and skipping that angle entirely if it would be generic.
 No "I am excited to apply", no "passionate about", no flattery the candidate
 could not defend in a room. Open with the specific reason they are a fit, spend
 the middle on evidence, and close with a plain statement of interest.
+
+Format it as a letter. Begin with exactly these two lines, which become the
+letterhead:
+
+# <candidate name>
+<location> · <email> · <phone> · <linkedin>
+
+Then the greeting, the body paragraphs, and the candidate's name to sign off.
+Take the contact details from the experience bank's identity block; omit any
+that are empty rather than inventing them.
 """
 
 
@@ -410,22 +422,21 @@ def generate_application_package(
         write_strategy(job_description, evidence_map, recommendation, reasoning, research)
     )
 
-    files = {
-        "evidence_map": f"{OUTPUT_DIR}/evidence_map.md",
-        "factuality_review": f"{OUTPUT_DIR}/factuality_review.md",
-        "resume": f"{OUTPUT_DIR}/tailored_resume.md",
-        "cover_letter": f"{OUTPUT_DIR}/cover_letter.md",
-        "strategy": f"{OUTPUT_DIR}/application_strategy.md",
-    }
-    for key, body in (
-        ("evidence_map", evidence_map),
-        ("factuality_review", review),
-        ("resume", resume),
-        ("cover_letter", cover_letter),
-        ("strategy", strategy),
-    ):
-        with open(files[key], "w") as handle:
-            handle.write(body + "\n")
+    # The model writes markdown; documents.py decides how each one looks. The
+    # two documents an employer receives get document typography; the internal
+    # working files get a denser report layout.
+    outputs = (
+        ("resume", "tailored_resume.pdf", resume, "resume"),
+        ("cover_letter", "cover_letter.pdf", cover_letter, "letter"),
+        ("evidence_map", "evidence_map.pdf", evidence_map, "report"),
+        ("factuality_review", "factuality_review.pdf", review, "report"),
+        ("strategy", "application_strategy.pdf", strategy, "report"),
+    )
+    files = {}
+    for key, name, body, style in outputs:
+        path = f"{OUTPUT_DIR}/{name}"
+        write_pdf(body, path, style)
+        files[key] = path
 
     return {
         "files": files,
