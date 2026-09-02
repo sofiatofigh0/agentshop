@@ -20,7 +20,7 @@
       "highlights": [
         "AI meeting summarization for financial advisors, shipped through Legal, Risk and Compliance",
         "LLM evaluation framework: 36 test scenarios scored by an LLM-as-judge across 12 criteria with hard-fail thresholds",
-        "Replaced a failing ML classifier with an LLM + RAG pipeline, cutting manual triage 80%"
+        "Replaced a legacy ML classifier with an LLM + RAG pipeline, cutting manual triage 80%"
       ]
     },
     {

@@ -299,3 +299,45 @@ details.box .inner { padding: 0 20px 20px; }
 .iter .txt { font-size: 0.9rem; color: var(--text-2); max-width: 70ch; }
 
 footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-top: 1px solid var(--border); }
+
+/* ---------- project facts ---------- */
+.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 30px; }
+@media (max-width: 700px) { .facts { grid-template-columns: 1fr; } }
+.fact { background: var(--surface); padding: 16px 18px; }
+.fact .k { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); display: block; margin-bottom: 6px; }
+.fact .v { font-size: 0.9rem; color: var(--text); line-height: 1.45; }
+
+/* ---------- the trace is the star ---------- */
+.trace-panel {
+  margin-top: 26px; padding: 24px 26px 28px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px;
+}
+@media (max-width: 620px) { .trace-panel { padding: 18px 16px 20px; } }
+.trace-panel .cap { font-size: 0.88rem; color: var(--text-2); max-width: 66ch; margin: 4px 0 4px; }
+.trace-panel .tag { font-size: 0.66rem; padding: 3px 9px; }
+.trace-panel .step .body { font-size: 0.93rem; }
+.trace-panel .phase-head { margin-top: 26px; }
+.trace-panel .phase-head:first-of-type { margin-top: 18px; }
+.trace-title { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); }
+
+/* results sit below and read as secondary to the trace */
+.results { margin-top: 30px; opacity: 0.97; }
+.results .tabs { margin-top: 0; }
+
+/* ---------- boundaries panel ---------- */
+.bounds { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+@media (max-width: 700px) { .bounds { grid-template-columns: 1fr; } }
+.bounds > div { background: var(--surface); padding: 20px 22px; }
+.bounds h4 { margin: 0 0 12px; }
+.bounds ul { margin: 0; padding-left: 18px; }
+.bounds li { font-size: 0.89rem; color: var(--text-2); margin-bottom: 7px; }
+
+/* ---------- eval iteration walk ---------- */
+.walk { list-style: none; padding: 0; margin: 0; }
+.walk li { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 11px 0; border-top: 1px solid var(--border); align-items: baseline; }
+.walk li:first-child { border-top: none; }
+@media (max-width: 640px) { .walk li { grid-template-columns: 1fr; gap: 3px; } }
+.walk .k { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+.walk .k.bad { color: var(--skip); }
+.walk .k.good { color: var(--apply); }
+.walk .v { font-size: 0.9rem; color: var(--text-2); max-width: 70ch; }

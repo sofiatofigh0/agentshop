@@ -13,7 +13,7 @@ import ResultTabs from "./ResultTabs";
  * description only reaches the API route when live mode is enabled server-side.
  */
 
-const REVEAL_MS = 620;
+const REVEAL_MS = 380;
 
 export default function Demo({
   runs,
@@ -136,9 +136,20 @@ export default function Demo({
             </span>
           </div>
 
-          <Timeline run={run} visible={visible} />
+          <div className="trace-panel">
+            <div className="trace-title">Execution trace</div>
+            <p className="cap">
+              Every step below the first heading was the model&rsquo;s choice. Every step below
+              the second was fixed in code before the run started.
+            </p>
+            <Timeline run={run} visible={visible} />
+          </div>
 
-          {done && <ResultTabs run={run} />}
+          {done && (
+            <div className="results">
+              <ResultTabs run={run} />
+            </div>
+          )}
         </div>
       )}
     </div>
