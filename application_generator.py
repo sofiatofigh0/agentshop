@@ -9,6 +9,10 @@ model in a fixed order and writes files to fixed paths:
                   ->  cover letter
                   ->  application strategy
 
+The three branches after the evidence map depend on nothing but the map, so
+they run concurrently. That is a wall-clock change only: same calls, same
+prompts, same cost.
+
 The evidence map comes first on purpose. Asking for a resume directly produces
 keyword stuffing; asking first "which requirement does each experience actually
 answer, and how strongly" forces the selection to be justified before any prose
@@ -21,6 +25,7 @@ import copy
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import anthropic
@@ -463,47 +468,62 @@ def generate_application_package(
     run_dir = os.path.join(OUTPUT_DIR, slugify(company, role))
     os.makedirs(run_dir, exist_ok=True)
 
-    calls = 0
-    input_tokens = 0
-    output_tokens = 0
-    cache_written = 0
-    cache_read = 0
+    # Usage is collected per call and totalled after every call has finished,
+    # so the parallel steps below never race on a running total.
+    usages = []
 
     def run(step):
-        nonlocal calls, input_tokens, output_tokens, cache_written, cache_read
         text, usage = step
-        calls += 1
-        input_tokens += usage.input_tokens
-        output_tokens += usage.output_tokens
-        # If cache_read stays at zero across a run, something is silently
-        # invalidating the prefix and the saving is not happening.
-        cache_written += getattr(usage, "cache_creation_input_tokens", 0) or 0
-        cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
+        usages.append(usage)   # list.append is atomic, so threads may call this
         return text
 
-    progress("  building requirement-to-evidence map...".strip())
+    progress("building requirement-to-evidence map...")
     evidence_map = run(build_evidence_map(job_description, research))
 
-    progress("  drafting resume...".strip())
-    draft = run(write_resume(job_description, evidence_map))
+    # The evidence map is the only step the rest depends on. After it, the
+    # resume chain, the cover letter and the strategy share no inputs, so they
+    # run at the same time rather than one after another — the same six calls,
+    # the same cost, roughly the time of three. The map's call has already
+    # written the cached prefix, so these read it instead of each writing a
+    # copy of their own, which is why the fan-out starts here and not earlier.
+    def resume_chain():
+        draft = run(write_resume(job_description, evidence_map))
+        review = run(check_factuality(draft))
+        if review_found_problems(review):
+            progress("resume: unsupported claims found — revising...")
+            return run(revise_resume(draft, review)), review
+        progress("resume: all claims supported.")
+        return draft, review
 
-    progress("  checking every claim against the experience bank...".strip())
-    review = run(check_factuality(draft))
+    def cover_letter_step():
+        text = run(write_cover_letter(job_description, evidence_map, research))
+        progress("cover letter written.")
+        return text
 
-    if review_found_problems(review):
-        progress("  unsupported claims found — revising...".strip())
-        resume = run(revise_resume(draft, review))
-    else:
-        progress("  all claims supported.".strip())
-        resume = draft
+    def strategy_step():
+        text = run(
+            write_strategy(job_description, evidence_map, recommendation, reasoning, research)
+        )
+        progress("application strategy written.")
+        return text
 
-    progress("  writing cover letter...".strip())
-    cover_letter = run(write_cover_letter(job_description, evidence_map, research))
+    # These lines arrive interleaved, so each one names its own document.
+    progress("writing resume, cover letter and strategy...")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        pending_resume = pool.submit(resume_chain)
+        pending_letter = pool.submit(cover_letter_step)
+        pending_strategy = pool.submit(strategy_step)
+        resume, review = pending_resume.result()
+        cover_letter = pending_letter.result()
+        strategy = pending_strategy.result()
 
-    progress("  writing application strategy...".strip())
-    strategy = run(
-        write_strategy(job_description, evidence_map, recommendation, reasoning, research)
-    )
+    calls = len(usages)
+    input_tokens = sum(u.input_tokens for u in usages)
+    output_tokens = sum(u.output_tokens for u in usages)
+    cache_written = sum(getattr(u, "cache_creation_input_tokens", 0) or 0 for u in usages)
+    # If cache_read stays at zero across a run, something is silently
+    # invalidating the prefix and the saving is not happening.
+    cache_read = sum(getattr(u, "cache_read_input_tokens", 0) or 0 for u in usages)
 
     # The model writes markdown; documents.py decides how each one looks. The
     # two documents an employer receives get document typography; the internal
