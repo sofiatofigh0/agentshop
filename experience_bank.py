@@ -165,7 +165,7 @@ EXPERIENCE_BANK = {
                     ),
                     "actions": [
                         "Led end-to-end product delivery of an AI meeting summarization product for financial advisors",
-                        "Conducted and translated research from 6+ advisor interviews",
+                        "Conducted and translated advisor discovery interviews into product requirements",
                         "Turned that research into 3 LLM-powered summarization templates",
                         "Worked through client-consent design and redaction requirements",
                         "Partnered with Legal, Risk and Compliance",
@@ -176,8 +176,6 @@ EXPERIENCE_BANK = {
                         "Expected user value of approximately 30 minutes of documentation time saved per meeting",
                     ],
                     "metrics": [
-                        {"claim": "6+ advisor interviews conducted and translated into product requirements",
-                         "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "3 LLM-powered summarization templates",
                          "type": "verified_metric", "source": "verified_resume"},
                         {"claim": "phased rollout targeting ~5,000 advisors",
@@ -186,8 +184,25 @@ EXPERIENCE_BANK = {
                          "type": "approximate_supported_metric", "source": "verified_resume",
                          "caveat": "This is an expected value. Do not present it as a measured outcome."},
                     ],
-                    "metric_variants": [],
+                    "metric_variants": [
+                        {"claim": "conducted and translated advisor discovery interviews into product requirements",
+                         "type": "framing", "source": "candidate_provided",
+                         "basis": "the candidate has confirmed the real interview count is well above the "
+                                  "figure printed on the resume, but has not yet supplied the exact number",
+                         "use_when": "the default choice — describe the discovery work without a count"},
+                        {"claim": "6+ advisor interviews conducted and translated into product requirements",
+                         "type": "verified_metric", "source": "verified_resume",
+                         "basis": "the figure printed on the existing resume",
+                         "use_when": "only where a numeric anchor genuinely earns its place in a bullet"},
+                    ],
+                    "metric_warning": (
+                        "The resume's '6+' advisor interviews is a floor the candidate has already "
+                        "exceeded, not the total. Never write it as the total, never state it as "
+                        "'six', and never round it up into a larger number: the real count is not "
+                        "in this bank yet. Prefer the count-free phrasing until it is."
+                    ),
                     "possible_metric_to_validate": [
+                        {"claim": "Exact number of advisor discovery interviews conducted (known to be well above 6)", "source": "needs_validation"},
                         {"claim": "Advisor adoption rate during the phased rollout", "source": "needs_validation"},
                         {"claim": "Measured (rather than expected) time saved per meeting post-launch", "source": "needs_validation"},
                         {"claim": "Number of engineers/designers on the team", "source": "needs_validation"},
@@ -759,7 +774,7 @@ EXPERIENCE_BANK = {
          "use_for": ["replacing legacy ML", "measurable AI impact", "operational leverage", "human-in-the-loop systems"]},
         {"id": 3, "title": "User discovery plus regulated shipping",
          "source": "JPMorgan Chase — AI meeting summarization",
-         "story": "6+ advisor interviews turned into 3 summarization templates, shipped through Legal, Risk and Compliance to ~5,000 advisors.",
+         "story": "Advisor discovery interviews turned into 3 summarization templates, shipped through Legal, Risk and Compliance to ~5,000 advisors.",
          "use_for": ["customer discovery", "regulated environments", "Legal/Risk/Compliance", "AI trust", "enterprise rollout"]},
         {"id": 4, "title": "Shipping / marketplace impact",
          "source": "Axial — mobile product redesign",

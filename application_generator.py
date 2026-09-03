@@ -108,6 +108,48 @@ own. Personal background never enters a resume by default — only where the
 profile's policy says it creates a genuinely relevant narrative."""
 
 
+# When the agent did not judge the role a clear fit, the candidate may still
+# choose to apply. The materials then have to carry an argument the reader will
+# not construct on their own. This block is appended to the step instructions —
+# never to the cached prefix, which must stay byte-identical — so a stretch run
+# costs a few hundred extra input tokens and nothing else.
+STRETCH_BRIEF = """
+
+STRETCH APPLICATION — the agent did not judge this role a clear fit, and the
+candidate has read that judgement and is applying anyway.
+
+The reader will not do the translating. If the application only lists what the
+candidate has done, a reviewer scanning for the posting's own words will not
+see the match, and the strongest evidence gets discarded for being described in
+the wrong vocabulary. So argue from the SHAPE of the work rather than its label.
+
+- Take each HIGH-priority requirement the candidate does not match head-on and
+  find the closest thing they have actually done. Make the transfer explicit:
+  what was structurally the same about the problem, the constraint, the users,
+  the stakes or the scale.
+- Lead with transferable substance, not domain. When the posting sits in an
+  industry or function the candidate has not worked in, open on the problem
+  they have solved before, not on the industry they have not.
+- Where the bank genuinely supports the underlying capability, describe it in
+  the posting's vocabulary rather than the candidate's. Reframing real work in
+  the reader's language is the entire job here.
+
+Three hard limits, because a stretch is exactly where applications start lying:
+
+- Never invent domain experience, a tool, a title, a metric or a scope to close
+  a gap. A gap closed by translation is persuasive; a gap closed by fabrication
+  ends the application. Where nothing honestly transfers, say nothing — an
+  unaddressed requirement costs far less than one answered with fiction.
+- Reframing is not promotion. The underlying claim must stay exactly as true as
+  the bank states it, at the same seniority, scope and precision.
+- Never mention that this is a stretch. No apologising, no flagging thin
+  experience, no "while I have not directly...". The documents an employer
+  receives make the positive case and stop; the honest accounting of what is
+  missing belongs in the evidence map and the strategy brief, which the
+  employer never sees.
+"""
+
+
 # Everything below is byte-identical on all six generation calls, so it is sent
 # once as a cached prefix and read back at a fraction of the cost on the other
 # five. Prompt caching is prefix-matched, so the stable material must come first
@@ -173,13 +215,30 @@ rows to build the whole application around) and "Real gaps" (what genuinely
 isn't there).
 """
 
+# Added to the evidence map only on a stretch run. The table above stays
+# honest — PARTIAL and NONE keep their meaning — and this asks separately for
+# the translation the resume and letter will be built on.
+EVIDENCE_MAP_BRIDGES = """
+Then add a third section, "Bridges". For each HIGH-priority requirement that
+came out PARTIAL or NONE, give one row:
 
-def build_evidence_map(job_description: str, research: str = "") -> tuple:
+| Requirement | Closest real experience | Why it transfers |
+
+"Why it transfers" is the actual argument — the structural similarity in the
+problem, constraint, users or scale — not a restatement of the evidence. Write
+"no honest bridge" where nothing in the bank genuinely transfers, and leave it
+at that. A fabricated bridge is worse than an admitted gap, and this section is
+what the resume and cover letter will be built on.
+"""
+
+
+def build_evidence_map(job_description: str, research: str = "", stretch: str = "") -> tuple:
     """Work out which experience answers which requirement, before writing prose."""
     user = f"JOB DESCRIPTION:\n{job_description}"
     if research:
         user += f"\n\nCOMPANY RESEARCH:\n{research}"
-    return _call(EVIDENCE_MAP_PROMPT, user)
+    prompt = EVIDENCE_MAP_PROMPT + (EVIDENCE_MAP_BRIDGES + stretch if stretch else "")
+    return _call(prompt, user)
 
 
 # --------------------------------------------------------------------------
@@ -245,13 +304,13 @@ document, which the employer never sees. End after the last resume section.
 """
 
 
-def write_resume(job_description: str, evidence_map: str) -> tuple:
+def write_resume(job_description: str, evidence_map: str, stretch: str = "") -> tuple:
     """Draft the resume from the evidence map."""
     user = (
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"EVIDENCE MAP:\n{evidence_map}"
     )
-    return _call(RESUME_PROMPT, user)
+    return _call(RESUME_PROMPT + stretch, user)
 
 
 # --------------------------------------------------------------------------
@@ -373,11 +432,12 @@ is worse than no link at all.
 """
 
 
-def write_cover_letter(job_description: str, evidence_map: str, research: str = "") -> tuple:
+def write_cover_letter(job_description: str, evidence_map: str, research: str = "",
+                      stretch: str = "") -> tuple:
     user = f"JOB DESCRIPTION:\n{job_description}\n\nEVIDENCE MAP:\n{evidence_map}"
     if research:
         user += f"\n\nCOMPANY RESEARCH:\n{research}"
-    return _call(COVER_LETTER_PROMPT, user, max_tokens=4000)
+    return _call(COVER_LETTER_PROMPT + stretch, user, max_tokens=4000)
 
 
 # --------------------------------------------------------------------------
@@ -477,8 +537,16 @@ def generate_application_package(
         usages.append(usage)   # list.append is atomic, so threads may call this
         return text
 
+    # Anything short of APPLY means the agent saw a real distance between this
+    # candidate and this posting. The materials still get written when the
+    # candidate asks for them, but they get written differently.
+    stretch = STRETCH_BRIEF if recommendation.strip().upper() != "APPLY" else ""
+    if stretch:
+        progress(f"{recommendation} — writing for a stretch: bridging experience "
+                 "to the posting's own requirements")
+
     progress("building requirement-to-evidence map...")
-    evidence_map = run(build_evidence_map(job_description, research))
+    evidence_map = run(build_evidence_map(job_description, research, stretch))
 
     # The evidence map is the only step the rest depends on. After it, the
     # resume chain, the cover letter and the strategy share no inputs, so they
@@ -487,7 +555,7 @@ def generate_application_package(
     # written the cached prefix, so these read it instead of each writing a
     # copy of their own, which is why the fan-out starts here and not earlier.
     def resume_chain():
-        draft = run(write_resume(job_description, evidence_map))
+        draft = run(write_resume(job_description, evidence_map, stretch))
         review = run(check_factuality(draft))
         if review_found_problems(review):
             progress("resume: unsupported claims found — revising...")
@@ -496,7 +564,7 @@ def generate_application_package(
         return draft, review
 
     def cover_letter_step():
-        text = run(write_cover_letter(job_description, evidence_map, research))
+        text = run(write_cover_letter(job_description, evidence_map, research, stretch))
         progress("cover letter written.")
         return text
 
@@ -563,6 +631,7 @@ def generate_application_package(
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "job_description": job_description,
             "research_performed": bool(research),
+            "written_as_stretch": bool(stretch),
         }, handle, indent=2)
 
     return {
