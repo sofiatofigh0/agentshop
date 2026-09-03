@@ -187,20 +187,48 @@ Write a resume for this specific job, guided by the evidence map you are given.
 Rows marked STRONG earn the most space and the highest position; rows marked
 NONE must not be papered over.
 
-Structure: name and contact line — including the portfolio URL and, when one is
-set, its password, since a gated link without the password is worse than no link
-— then a three-line professional summary aimed at this role, then Experience (most relevant first, with the strongest bullets
-first within each role), then Skills, then Education, then anything else that
-helps.
+Emit EXACTLY this structure. The renderer routes these sections into a
+two-column template, so the headings and the order of the first three lines
+matter:
 
-Keep every employer, title and date exactly as the bank states them. Prefer
-bullets that carry a defensible number.
+# <full name>
+**<one-line professional title, aimed at this role — e.g. "AI Product Manager">**
+<one contact line, items separated by " · ">
 
-LENGTH: aim for one page — roughly 600 words. Spend them where the evidence map
-says STRONG: the most relevant role earns four or five bullets, the next two or
-three, older or less relevant roles one or two. Write it tight, but do not drop
-evidence the job actually asks for in order to hit a word count; the renderer
-tightens the typography to fit whatever you write onto a single page.
+## Profile
+<three or four lines of prose, aimed at this role>
+
+## Skills
+- <six to nine short skill phrases, most relevant first>
+
+## Experience
+### <Role> — <Company> | <dates>
+<optional single line describing the employer or scope>
+- <bullet>
+- <bullet>
+
+### <Role> — <Company> | <dates>
+- <bullet>
+
+## Selected Projects
+- **<name>** — <one line>
+
+## Education
+**<credential>**
+<institution> · <dates>
+
+Rules for that structure:
+- The contact line must include the portfolio URL and, when one is set, its
+  password, since a gated link without the password is worse than no link.
+- Roles go newest first UNLESS a less recent role is markedly more relevant to
+  this job, in which case lead with that one.
+- The pipe before the dates is required — it is how the renderer right-aligns
+  them. Keep every date exactly as the bank states it.
+- Profile, Skills and Education render in the narrow left column; Experience and
+  Selected Projects render in the wide right column. Keep left-column content
+  short so it does not outrun the right.
+- Omit Selected Projects entirely if nothing there answers a requirement.
+- No other top-level sections.
 
 This is a document the candidate submits to an employer. It must contain ONLY
 the resume. Never add a section assessing fit, listing gaps, weaknesses,
