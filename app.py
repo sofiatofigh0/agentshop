@@ -17,6 +17,7 @@ the page polls /api/status for progress lines and the finished result.
 
 import json
 import os
+import shutil
 import threading
 import uuid
 from datetime import datetime
@@ -149,6 +150,30 @@ def history():
             meta.pop("job_description", None)  # too big for a list view
             out.append(meta)
     return jsonify(out)
+
+
+@app.delete("/api/history/<folder>")
+def delete_run(folder: str):
+    """Delete one past application, folder and all.
+
+    This removes real files with no undo, so the path is checked rather than
+    trusted: the resolved target must sit directly inside outputs/. A folder
+    name containing a traversal, an absolute path, or a nested path never
+    resolves there and is rejected before anything is removed.
+    """
+    base = os.path.realpath(os.path.join(ROOT, OUTPUT_DIR))
+    target = os.path.realpath(os.path.join(base, folder))
+
+    if os.path.dirname(target) != base or target == base:
+        return jsonify({"error": "Invalid folder."}), 400
+    if not os.path.isdir(target):
+        return jsonify({"error": "That application no longer exists."}), 404
+    # Only ever delete something this app produced.
+    if not os.path.isfile(os.path.join(target, "run.json")):
+        return jsonify({"error": "Not a generated application folder."}), 400
+
+    shutil.rmtree(target)
+    return jsonify({"deleted": folder})
 
 
 @app.get("/outputs/<path:relative>")

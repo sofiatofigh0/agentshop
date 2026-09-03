@@ -338,6 +338,18 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
 .hist .links { margin-top:6px; display:flex; gap:12px; flex-wrap:wrap; }
 .hist .links a { font-size:0.79rem; color:var(--accent); text-decoration:none; }
 .verdict.sm { font-size:0.76rem; padding:2px 8px; }
+.hist .top { align-items:center; }
+.hist .right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.del { border:none; background:none; padding:3px 6px; border-radius:5px; cursor:pointer;
+       color:var(--text-3); font-size:0.95rem; line-height:1; }
+.del:hover { background:var(--surface-2); color:var(--skip); }
+.confirm { margin-top:8px; padding:9px 11px; border:1px solid var(--border);
+           border-left:3px solid var(--skip); background:var(--surface-2);
+           border-radius:0 7px 7px 0; font-size:0.82rem; color:var(--text-2); }
+.confirm .row { margin-top:8px; display:flex; gap:8px; }
+.confirm button { font-size:0.78rem; padding:5px 11px; }
+.confirm .danger { border-color:var(--skip); color:var(--skip); }
+.confirm .danger:hover { background:var(--skip); color:var(--surface); }
 .check { display:flex; align-items:center; gap:7px; font-size:0.84rem; color:var(--text-2); }
 .q { display:block; margin-top:6px; }
 
@@ -401,13 +413,58 @@ async function loadHistory() {
       <div class="top">
         <span><span class="co">${esc(r.company || "Unknown")}</span>
         <span class="ro">${r.role ? "&mdash; " + esc(r.role) : ""}</span></span>
-        <span class="verdict sm ${esc(r.recommendation)}">${esc(r.recommendation)}</span>
+        <span class="right">
+          <span class="verdict sm ${esc(r.recommendation)}">${esc(r.recommendation)}</span>
+          <button class="del" data-del="${esc(r.folder)}" title="Delete this application"
+                  aria-label="Delete this application">&times;</button>
+        </span>
       </div>
       <div class="dt">${esc((r.generated_at || "").replace("T", " "))}</div>
       <div class="links">${(r.files || []).map(f =>
         `<a href="/outputs/${encodeURIComponent(r.folder)}/${encodeURIComponent(f)}" target="_blank">${label(f)}</a>`
       ).join("")}</div>
+      <div class="slot"></div>
     </li>`).join("");
+  wireDelete();
+}
+
+// Deleting removes the PDFs from disk with no undo, so the row asks first
+// rather than firing on a single click.
+function wireDelete() {
+  document.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const li = btn.closest("li");
+      const slot = li.querySelector(".slot");
+      if (slot.innerHTML) { slot.innerHTML = ""; return; }   // second click closes it
+      slot.innerHTML = `
+        <div class="confirm">
+          Delete this application and its PDFs? This cannot be undone.
+          <div class="row">
+            <button class="danger" data-yes>Delete</button>
+            <button data-no>Cancel</button>
+          </div>
+        </div>`;
+      slot.querySelector("[data-no]").addEventListener("click", () => { slot.innerHTML = ""; });
+      slot.querySelector("[data-yes]").addEventListener("click", async () => {
+        slot.querySelector("[data-yes]").disabled = true;
+        try {
+          const res = await fetch("/api/history/" + encodeURIComponent(btn.dataset.del),
+                                  { method: "DELETE" });
+          if (!res.ok) {
+            const data = await res.json();
+            slot.innerHTML = `<div class="confirm">${esc(data.error || "Could not delete.")}</div>`;
+            return;
+          }
+          li.remove();
+          if (!document.querySelectorAll(".hist li").length) {
+            $("#histempty").style.display = "block";
+          }
+        } catch (e) {
+          slot.innerHTML = `<div class="confirm">Could not reach the local server.</div>`;
+        }
+      });
+    });
+  });
 }
 
 function fail(msg) {
