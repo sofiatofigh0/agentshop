@@ -32,6 +32,8 @@ import anthropic
 
 from documents import fit_pdf, page_count, write_pdf
 
+import lessons
+
 from candidate_profile import CANDIDATE_PROFILE
 from experience_bank import EXPERIENCE_BANK, missing_fields
 
@@ -238,12 +240,13 @@ what the resume and cover letter will be built on.
 """
 
 
-def build_evidence_map(job_description: str, research: str = "", stretch: str = "") -> tuple:
+def build_evidence_map(job_description: str, research: str = "", guidance: str = "",
+                      stretch: str = "") -> tuple:
     """Work out which experience answers which requirement, before writing prose."""
     user = f"JOB DESCRIPTION:\n{job_description}"
     if research:
         user += f"\n\nCOMPANY RESEARCH:\n{research}"
-    prompt = EVIDENCE_MAP_PROMPT + (EVIDENCE_MAP_BRIDGES + stretch if stretch else "")
+    prompt = EVIDENCE_MAP_PROMPT + (EVIDENCE_MAP_BRIDGES if stretch else "") + guidance
     return _call(prompt, user)
 
 
@@ -310,13 +313,13 @@ document, which the employer never sees. End after the last resume section.
 """
 
 
-def write_resume(job_description: str, evidence_map: str, stretch: str = "") -> tuple:
+def write_resume(job_description: str, evidence_map: str, guidance: str = "") -> tuple:
     """Draft the resume from the evidence map."""
     user = (
         f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"EVIDENCE MAP:\n{evidence_map}"
     )
-    return _call(RESUME_PROMPT + stretch, user)
+    return _call(RESUME_PROMPT + guidance, user)
 
 
 # --------------------------------------------------------------------------
@@ -439,11 +442,11 @@ is worse than no link at all.
 
 
 def write_cover_letter(job_description: str, evidence_map: str, research: str = "",
-                      stretch: str = "") -> tuple:
+                      guidance: str = "") -> tuple:
     user = f"JOB DESCRIPTION:\n{job_description}\n\nEVIDENCE MAP:\n{evidence_map}"
     if research:
         user += f"\n\nCOMPANY RESEARCH:\n{research}"
-    return _call(COVER_LETTER_PROMPT + stretch, user, max_tokens=4000)
+    return _call(COVER_LETTER_PROMPT + guidance, user, max_tokens=4000)
 
 
 # --------------------------------------------------------------------------
@@ -564,8 +567,16 @@ def generate_application_package(
         progress(f"{recommendation} — writing for a stretch: bridging experience "
                  "to the posting's own requirements")
 
+    # What past edits taught, read now rather than at import: an edit made
+    # earlier in this same session has to reach this run. Like the stretch
+    # brief it rides on the step instructions, never the cached prefix.
+    learned = lessons.prompt_block()
+    if learned:
+        progress(f"applying {len(lessons.load())} preference(s) learned from your edits")
+    guidance = stretch + learned
+
     progress("building requirement-to-evidence map...")
-    evidence_map = run(build_evidence_map(job_description, research, stretch))
+    evidence_map = run(build_evidence_map(job_description, research, guidance, stretch))
 
     # The evidence map is the only step the rest depends on. After it, the
     # resume chain, the cover letter and the strategy share no inputs, so they
@@ -574,7 +585,7 @@ def generate_application_package(
     # written the cached prefix, so these read it instead of each writing a
     # copy of their own, which is why the fan-out starts here and not earlier.
     def resume_chain():
-        draft = run(write_resume(job_description, evidence_map, stretch))
+        draft = run(write_resume(job_description, evidence_map, guidance))
         review = run(check_factuality(draft))
         if review_found_problems(review):
             progress("resume: unsupported claims found — revising...")
@@ -583,7 +594,7 @@ def generate_application_package(
         return draft, review
 
     def cover_letter_step():
-        text = run(write_cover_letter(job_description, evidence_map, research, stretch))
+        text = run(write_cover_letter(job_description, evidence_map, research, guidance))
         progress("cover letter written.")
         return text
 

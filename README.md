@@ -197,6 +197,40 @@ the posting.
 A run can also be deleted from its row in the history — the folder and its PDFs
 go with it, after a confirmation, with no undo.
 
+### Learning from those edits
+
+An edit is the most direct feedback there is: it is the candidate saying, in
+their own words, what should have been written. Saving one sends the diff — and
+an optional note explaining why — to a small model call that tries to state the
+rule behind it in one sentence, tagged with the kind of posting it applies to.
+The editor shows what was drawn ("Learned: open on the team's problem, not on a
+background summary"), and the lessons are listed under the history where any of
+them can be deleted. Nothing inferred this way is permanent.
+
+Later runs receive those lessons in the resume, cover letter and evidence-map
+prompts, with their scopes, so a rule learned on a partnerships role is applied
+to a platform one only if it genuinely fits.
+
+One rule governs the whole loop:
+
+> A lesson may change **how** something is said. It may never change **what is
+> true.**
+
+The distiller is instructed to record preferences about wording, emphasis,
+ordering, structure, length and tone, and to record no fact at all — no metric,
+employer, title, date, team size or achievement, not even one typed in by hand.
+An edit that only adds a claim teaches nothing and is dropped. Learning style
+from an edit is useful; learning facts from one would quietly promote a
+hand-written sentence into a source of truth, which is what the provenance
+rules exist to prevent.
+
+Two files hold this, both gitignored because both derive from private
+documents: `feedback.jsonl` is the append-only record of every edit as it
+happened, and `lessons.json` holds the distilled preferences that generation
+actually reads. The learning is best-effort — a failed or unparseable
+distillation is swallowed, because an edit that cannot be learned from is still
+an edit that saved correctly.
+
 Output lands in `outputs/` as PDFs, which is gitignored because generated
 applications contain personal information. The resume and cover letter are
 typeset as finished documents; the evidence map, factuality review and strategy
