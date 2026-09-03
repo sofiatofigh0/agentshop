@@ -187,8 +187,9 @@ Write a resume for this specific job, guided by the evidence map you are given.
 Rows marked STRONG earn the most space and the highest position; rows marked
 NONE must not be papered over.
 
-Structure: name and contact line, a three-line professional summary aimed at
-this role, then Experience (most relevant first, with the strongest bullets
+Structure: name and contact line — including the portfolio URL and, when one is
+set, its password, since a gated link without the password is worse than no link
+— then a three-line professional summary aimed at this role, then Experience (most relevant first, with the strongest bullets
 first within each role), then Skills, then Education, then anything else that
 helps.
 
@@ -330,7 +331,10 @@ letterhead:
 
 Then the greeting, the body paragraphs, and the candidate's name to sign off.
 Take the contact details from the experience bank's identity block; omit any
-that are empty rather than inventing them.
+that are empty rather than inventing them. If a portfolio URL is present and a
+portfolio_password is set, always give them together — for example
+"sofia-tofigh.netlify.app (password: xxxx)". A gated link without its password
+is worse than no link at all.
 """
 
 
