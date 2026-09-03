@@ -28,7 +28,9 @@ from flask import Flask, jsonify, request, send_from_directory
 load_dotenv()
 
 from agent import MODEL, evaluate, parse_field, parse_recommendation, report_text
-from application_generator import OUTPUT_DIR, generate_application_package
+from application_generator import (
+    OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
+)
 
 app = Flask(__name__, static_folder=None)
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -147,33 +149,118 @@ def history():
             meta["folder"] = name
             meta["files"] = sorted(f for f in os.listdir(os.path.join(OUTPUT_DIR, name))
                                    if f.endswith(".pdf"))
+            # Packages generated before the markdown was kept cannot be edited,
+            # so the UI does not offer it for them.
+            meta["editable"] = os.path.isfile(os.path.join(OUTPUT_DIR, name, SOURCES_FILE))
             meta.pop("job_description", None)  # too big for a list view
             out.append(meta)
     return jsonify(out)
 
 
-@app.delete("/api/history/<folder>")
-def delete_run(folder: str):
-    """Delete one past application, folder and all.
+def _run_dir(folder: str):
+    """Resolve a history folder name. Returns (path, None) or (None, response).
 
-    This removes real files with no undo, so the path is checked rather than
-    trusted: the resolved target must sit directly inside outputs/. A folder
-    name containing a traversal, an absolute path, or a nested path never
-    resolves there and is rejected before anything is removed.
+    Every route that reads, writes or removes real files goes through here, so
+    the check happens once. The resolved target must sit directly inside
+    outputs/ and carry a run.json: a traversal, an absolute path, a nested path
+    or an unrelated directory is rejected before any filesystem work happens.
     """
     base = os.path.realpath(os.path.join(ROOT, OUTPUT_DIR))
     target = os.path.realpath(os.path.join(base, folder))
 
     if os.path.dirname(target) != base or target == base:
-        return jsonify({"error": "Invalid folder."}), 400
+        return None, (jsonify({"error": "Invalid folder."}), 400)
     if not os.path.isdir(target):
-        return jsonify({"error": "That application no longer exists."}), 404
-    # Only ever delete something this app produced.
+        return None, (jsonify({"error": "That application no longer exists."}), 404)
     if not os.path.isfile(os.path.join(target, "run.json")):
-        return jsonify({"error": "Not a generated application folder."}), 400
+        return None, (jsonify({"error": "Not a generated application folder."}), 400)
+    return target, None
 
+
+def _sources(run_dir: str):
+    """The markdown behind a run's PDFs, or None for a run generated before
+    sources were kept."""
+    path = os.path.join(run_dir, SOURCES_FILE)
+    if not os.path.isfile(path):
+        return None
+    with open(path) as handle:
+        return json.load(handle)
+
+
+@app.delete("/api/history/<folder>")
+def delete_run(folder: str):
+    """Delete one past application, folder and all. No undo, hence the guard."""
+    target, error = _run_dir(folder)
+    if error:
+        return error
     shutil.rmtree(target)
     return jsonify({"deleted": folder})
+
+
+@app.get("/api/document/<folder>/<key>")
+def read_document(folder: str, key: str):
+    """The editable markdown behind one generated PDF."""
+    run_dir, error = _run_dir(folder)
+    if error:
+        return error
+
+    sources = _sources(run_dir)
+    if sources is None:
+        return jsonify({"error": "This application was generated before the text "
+                                 "was kept, so there is nothing to edit. Re-run the "
+                                 "job description to get an editable version."}), 409
+    if key not in sources:
+        return jsonify({"error": "No such document."}), 404
+
+    entry = sources[key]
+    return jsonify({"key": key, "file": entry["file"], "style": entry["style"],
+                    "markdown": entry["markdown"]})
+
+
+@app.put("/api/document/<folder>/<key>")
+def write_document(folder: str, key: str):
+    """Replace one document's text and re-render its PDF.
+
+    The edit names a document by key, never by path: the filename and style
+    come from the run's own sources.json, so a request cannot choose what gets
+    overwritten. The PDF is rendered to a temporary file first and moved into
+    place only once it exists, so a render that fails leaves the previous PDF
+    intact rather than truncating it.
+    """
+    run_dir, error = _run_dir(folder)
+    if error:
+        return error
+
+    sources = _sources(run_dir)
+    if sources is None:
+        return jsonify({"error": "This application has no editable text."}), 409
+    if key not in sources:
+        return jsonify({"error": "No such document."}), 404
+
+    markdown_text = (request.get_json(silent=True) or {}).get("markdown")
+    if not isinstance(markdown_text, str) or not markdown_text.strip():
+        return jsonify({"error": "The document cannot be empty."}), 400
+    if len(markdown_text) > 200_000:
+        return jsonify({"error": "That is far larger than any of these documents."}), 400
+
+    entry = sources[key]
+    final = os.path.join(run_dir, entry["file"])
+    draft = final + ".rendering"
+    try:
+        pages, pt = render_document(markdown_text, draft, entry["style"])
+    except Exception as exc:
+        if os.path.exists(draft):
+            os.remove(draft)
+        return jsonify({"error": f"Could not render that text: {exc}"}), 400
+    os.replace(draft, final)
+
+    entry["markdown"] = markdown_text
+    with open(os.path.join(run_dir, SOURCES_FILE), "w") as handle:
+        json.dump(sources, handle, indent=2)
+
+    fitted = entry["style"] in ("resume", "letter")
+    return jsonify({"file": entry["file"], "pages": pages, "body_pt": pt,
+                    "fitted": fitted})
 
 
 @app.get("/outputs/<path:relative>")

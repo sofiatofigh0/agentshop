@@ -336,6 +336,8 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
 .hist .ro { color:var(--text-2); font-size:0.85rem; }
 .hist .dt { color:var(--text-3); font-size:0.76rem; font-family:var(--mono); margin-top:2px; }
 .hist .links { margin-top:6px; display:flex; gap:12px; flex-wrap:wrap; }
+.hist .links .pair { display:inline-flex; align-items:baseline; gap:5px; }
+.hist .links .note { color:var(--text-3); font-size:0.76rem; font-style:italic; }
 .hist .links a { font-size:0.79rem; color:var(--accent); text-decoration:none; }
 .verdict.sm { font-size:0.76rem; padding:2px 8px; }
 .hist .top { align-items:center; }
@@ -351,6 +353,30 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
 .confirm .danger { border-color:var(--skip); color:var(--skip); }
 .confirm .danger:hover { background:var(--skip); color:var(--surface); }
 .check { display:flex; align-items:center; gap:7px; font-size:0.84rem; color:var(--text-2); }
+
+/* ---------- document editor ---------- */
+.edit { background:none; border:none; padding:0; font:inherit; font-size:0.78rem;
+        color:var(--text-3); cursor:pointer; text-decoration:underline;
+        text-underline-offset:2px; }
+.edit:hover:not(:disabled) { color:var(--accent); background:none; }
+.sheet[hidden] { display:none; }   /* display:flex below would otherwise beat it */
+.sheet { position:fixed; inset:0; z-index:50; display:flex; align-items:center;
+         justify-content:center; padding:24px; background:rgba(0,0,0,0.45); }
+.sheet .panel { width:min(860px, 100%); max-height:100%; display:flex; flex-direction:column;
+                background:var(--surface); border:1px solid var(--border-strong);
+                border-radius:12px; overflow:hidden; }
+.sheet header { padding:15px 20px; border-bottom:1px solid var(--border);
+                display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.sheet header .name { font-weight:600; font-size:0.95rem; }
+.sheet header .where { color:var(--text-3); font-size:0.79rem; font-family:var(--mono); }
+.sheet textarea { flex:1; min-height:46vh; resize:none; border:none; outline:none;
+                  padding:18px 20px; font-family:var(--mono); font-size:0.82rem;
+                  line-height:1.65; background:var(--surface); color:var(--text); }
+.sheet footer { padding:13px 20px; border-top:1px solid var(--border);
+                display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+                background:var(--surface-2); }
+.sheet footer .msg { flex:1; min-width:180px; font-size:0.8rem; color:var(--text-2); }
+.sheet footer .msg.bad { color:var(--skip); }
 .q { display:block; margin-top:6px; }
 
 </style>
@@ -392,6 +418,19 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
   </div>
 </div>
 
+<div id="sheet" class="sheet" hidden>
+  <div class="panel">
+    <header><span class="name" id="sheetname"></span><span class="where" id="sheetwhere"></span></header>
+    <textarea id="sheettext" spellcheck="false"></textarea>
+    <footer>
+      <span class="msg" id="sheetmsg">Edits re-render the PDF from this text. The factuality
+      check does not run again, so anything you add here is on you.</span>
+      <button id="sheetcancel">Cancel</button>
+      <button class="primary" id="sheetsave">Save &amp; re-render</button>
+    </footer>
+  </div>
+</div>
+
 <script>
 
 const $ = s => document.querySelector(s);
@@ -404,6 +443,27 @@ const LABELS = {
   "factuality_review.pdf":"Factuality review"
 };
 const label = f => LABELS[f] || f;
+
+// The API addresses a document by key, never by filename, so the server
+// decides which file an edit touches.
+const KEYS = {
+  "tailored_resume.pdf":"resume", "cover_letter.pdf":"cover_letter",
+  "application_strategy.pdf":"strategy", "evidence_map.pdf":"evidence_map",
+  "factuality_review.pdf":"factuality_review"
+};
+
+// A re-rendered PDF keeps its URL, so without this the browser would happily
+// show the version it already has.
+const stamps = {};
+function href(folder, file) {
+  const base = `/outputs/${encodeURIComponent(folder)}/${encodeURIComponent(file)}`;
+  return stamps[folder + "/" + file] ? `${base}?v=${stamps[folder + "/" + file]}` : base;
+}
+function editBtn(folder, file, editable) {
+  return editable && KEYS[file]
+    ? `<button class="edit" data-edit="${esc(folder)}|${esc(KEYS[file])}|${esc(file)}">edit</button>`
+    : "";
+}
 
 async function loadHistory() {
   const rows = await (await fetch("/api/history")).json();
@@ -421,8 +481,9 @@ async function loadHistory() {
       </div>
       <div class="dt">${esc((r.generated_at || "").replace("T", " "))}</div>
       <div class="links">${(r.files || []).map(f =>
-        `<a href="/outputs/${encodeURIComponent(r.folder)}/${encodeURIComponent(f)}" target="_blank">${label(f)}</a>`
-      ).join("")}</div>
+        `<span class="pair"><a href="${href(r.folder, f)}" target="_blank">${label(f)}</a>${editBtn(r.folder, f, r.editable)}</span>`
+      ).join("")}${r.editable ? "" :
+        '<span class="note" title="The markdown behind these PDFs was not kept for runs generated before editing existed.">text not kept &mdash; re-run to edit</span>'}</div>
       <div class="slot"></div>
     </li>`).join("");
   wireDelete();
@@ -467,6 +528,103 @@ function wireDelete() {
   });
 }
 
+// ---------------------------------------------------------------- editor
+//
+// A PDF is not the editable thing here: the one-page fit is a property of the
+// typography, so the text is edited as the markdown it was rendered from and
+// the PDF is rebuilt by the same code that produced it.
+const sheet = {
+  el: $("#sheet"), text: $("#sheettext"), msg: $("#sheetmsg"),
+  save: $("#sheetsave"), cancel: $("#sheetcancel"),
+  name: $("#sheetname"), where: $("#sheetwhere"),
+  open: false, folder: "", key: "", file: "", original: "",
+};
+const SHEET_HINT = "Edits re-render the PDF from this text. The factuality check does not " +
+                   "run again, so anything you add here is on you.";
+
+function say(text, bad) {
+  sheet.msg.textContent = text;
+  sheet.msg.classList.toggle("bad", !!bad);
+}
+
+document.addEventListener("click", async (event) => {
+  const btn = event.target.closest("[data-edit]");
+  if (!btn) return;
+  const [folder, key, file] = btn.dataset.edit.split("|");
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/document/${encodeURIComponent(folder)}/${encodeURIComponent(key)}`);
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || "Could not open that document."); return; }
+    openSheet(folder, key, file, data.markdown);
+  } catch (e) {
+    alert("Could not reach the local server.");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function openSheet(folder, key, file, markdown) {
+  Object.assign(sheet, { open: true, folder, key, file, original: markdown });
+  sheet.name.textContent = label(file);
+  sheet.where.textContent = folder;
+  sheet.text.value = markdown;
+  say(SHEET_HINT, false);
+  sheet.save.disabled = false;
+  sheet.el.hidden = false;
+  sheet.text.focus();
+  // Focusing lands the caret at the end, which scrolls a long document past
+  // its own first line. Open at the top instead.
+  sheet.text.setSelectionRange(0, 0);
+  sheet.text.scrollTop = 0;
+}
+
+function closeSheet(force) {
+  if (!force && sheet.text.value !== sheet.original &&
+      !confirm("Close without saving? Your edits will be lost.")) return;
+  sheet.open = false;
+  sheet.el.hidden = true;
+}
+
+sheet.cancel.addEventListener("click", () => closeSheet(false));
+sheet.el.addEventListener("click", (e) => { if (e.target === sheet.el) closeSheet(false); });
+document.addEventListener("keydown", (e) => {
+  if (sheet.open && e.key === "Escape") closeSheet(false);
+});
+
+sheet.save.addEventListener("click", async () => {
+  const markdown = sheet.text.value;
+  if (!markdown.trim()) { say("The document cannot be empty.", true); return; }
+
+  sheet.save.disabled = true;
+  say("Re-rendering\u2026", false);
+  try {
+    const res = await fetch(
+      `/api/document/${encodeURIComponent(sheet.folder)}/${encodeURIComponent(sheet.key)}`,
+      { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown }) });
+    const data = await res.json();
+    if (!res.ok) { say(data.error || "Could not save.", true); sheet.save.disabled = false; return; }
+
+    stamps[sheet.folder + "/" + sheet.file] = Date.now();
+    sheet.original = markdown;
+    // A resume or letter that no longer fits is worth saying out loud — it is
+    // saved either way, but it is now a two-page document.
+    if (data.fitted && data.pages > 1) {
+      say(`Saved, but it came to ${data.pages} pages even at ${data.body_pt}pt. Trim it to fit.`, true);
+      sheet.save.disabled = false;
+    } else {
+      say(data.fitted ? `Saved \u2014 one page at ${data.body_pt}pt.`
+                      : `Saved \u2014 ${data.pages} page${data.pages === 1 ? "" : "s"}.`, false);
+      setTimeout(() => { if (sheet.open) closeSheet(true); }, 900);
+    }
+    loadHistory();
+  } catch (e) {
+    say("Could not reach the local server.", true);
+    sheet.save.disabled = false;
+  }
+});
+
 function fail(msg) {
   clearInterval(timer);
   $("#go").disabled = false; $("#go").textContent = "Run Agent";
@@ -495,8 +653,8 @@ async function poll(id) {
   const folder = (s.run_dir || "").split("/").pop();
   const files = (s.files || []).length
     ? `<ul class="files">${s.files.map(f =>
-        `<li><a href="/outputs/${encodeURIComponent(folder)}/${encodeURIComponent(f)}" target="_blank">${label(f)}</a>
-        <span class="kind">${esc(f)}</span></li>`).join("")}</ul>`
+        `<li><a href="${href(folder, f)}" target="_blank">${label(f)}</a>
+        <span class="kind">${esc(f)} ${editBtn(folder, f, true)}</span></li>`).join("")}</ul>`
     : `<div class="notice">No materials were generated for this run.</div>`;
 
   $("#result").innerHTML =

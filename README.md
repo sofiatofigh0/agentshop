@@ -176,6 +176,27 @@ This is not the portfolio demo. It runs the real agent against your real key and
 your private experience bank, so **every run costs money** (roughly $1). The
 server binds to `127.0.0.1` deliberately; it is not built to face the internet.
 
+### Editing a document after it is generated
+
+Every listed document has a small **edit** link beside it, in the history on the
+right and in the results panel after a run. It opens the markdown the PDF was
+rendered from; `Save & re-render` rebuilds the PDF and reports what it came to
+("one page at 9.6pt"), or says so and stays open if the edit no longer fits.
+
+The PDF itself is not the editable artifact. Fitting a resume to one page is a
+typographic result — `documents.py` walks a density ladder until the page holds
+— so an edit has to go back through the same renderer to keep it. Each run
+therefore writes a `sources.json` holding the markdown behind every PDF, and an
+edit re-renders through the same entry point generation uses.
+
+Two things worth knowing. The factuality check does not re-run on an edit, so
+anything added by hand is unguarded. And packages generated before this existed
+kept no markdown; those rows say so and can only be made editable by re-running
+the posting.
+
+A run can also be deleted from its row in the history — the folder and its PDFs
+go with it, after a confirmation, with no undo.
+
 Output lands in `outputs/` as PDFs, which is gitignored because generated
 applications contain personal information. The resume and cover letter are
 typeset as finished documents; the evidence map, factuality review and strategy

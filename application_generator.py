@@ -38,6 +38,12 @@ from experience_bank import EXPERIENCE_BANK, missing_fields
 # Python owns the output paths. The model never chooses where anything is saved.
 OUTPUT_DIR = "outputs"
 
+# The markdown each PDF was rendered from, kept beside it. The folder still
+# contains only PDFs as far as anything that lists it is concerned, but the
+# source survives, which is what makes a generated document editable after the
+# fact: an edit re-renders from markdown rather than trying to rewrite a PDF.
+SOURCES_FILE = "sources.json"
+
 def _generation_facts() -> str:
     """The bank as the generator sees it.
 
@@ -504,6 +510,19 @@ def slugify(company: str, role: str) -> str:
     return f"{datetime.now():%Y-%m-%d}-{slug or 'application'}"
 
 
+def render_document(markdown_text: str, path: str, style: str) -> tuple:
+    """Render one document to its final PDF. Returns (pages, body_pt).
+
+    The only place a PDF is produced, so a document re-rendered after an edit
+    gets exactly the typography it was generated with — including the one-page
+    fit, which is why an edit cannot be applied to the PDF directly.
+    """
+    if style in ("resume", "letter"):
+        return fit_pdf(markdown_text, path, style)
+    write_pdf(markdown_text, path, style)
+    return page_count(path), None
+
+
 def generate_application_package(
     job_description: str, recommendation: str, reasoning: str, research: str = "",
     company: str = "", role: str = "", progress=print,
@@ -606,18 +625,22 @@ def generate_application_package(
     files = {}
     for key, name, body, style in outputs:
         path = os.path.join(run_dir, name)
+        # One page, achieved by tightening the setting rather than by deleting
+        # evidence. Nothing the model wrote is removed.
+        pages, pt = render_document(body, path, style)
         if style in ("resume", "letter"):
-            # One page, achieved by tightening the setting rather than by
-            # deleting evidence. Nothing the model wrote is removed.
-            pages, pt = fit_pdf(body, path, style)
             if pages > 1:
                 progress(f"{name}: {pages} pages even at {pt}pt — too much content to fit")
             else:
                 progress(f"{name}: fitted to one page at {pt}pt")
-        else:
-            write_pdf(body, path, style)
-
         files[key] = path
+
+    # The markdown behind each PDF, so it can be edited and re-rendered later.
+    # `file` and `style` live here too: an edit then names a document by key and
+    # the server looks up where it goes, rather than taking a path from a caller.
+    with open(os.path.join(run_dir, SOURCES_FILE), "w") as handle:
+        json.dump({key: {"file": name, "style": style, "markdown": body}
+                   for key, name, body, style in outputs}, handle, indent=2)
 
     # A record of what this application was, so months later the folder is not
     # a mystery. This is the thing that was missing when five identically named
