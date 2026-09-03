@@ -192,7 +192,9 @@ two-column template, so the headings and the order of the first three lines
 matter:
 
 # <full name>
-**<one-line professional title, aimed at this role — e.g. "AI Product Manager">**
+**<professional title, aimed at this role — at most five words and 42
+characters, e.g. "AI Product Manager" or "Platform Product Manager". It sits
+beside the contact block and must not wrap.>**
 <one contact line, items separated by " · ">
 
 ## Profile
@@ -422,10 +424,19 @@ def write_strategy(
 # --------------------------------------------------------------------------
 
 def slugify(company: str, role: str) -> str:
-    """A short, sortable folder name for one application."""
-    raw = f"{company}-{role}".lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")[:60] or "application"
-    return f"{datetime.now():%Y-%m-%d}-{slug}"
+    """A short, sortable folder name for one application.
+
+    Company and role are trimmed separately. The model sometimes returns a role
+    with trailing prose attached — "Partnerships Product Manager (reports
+    directly to the Head of Product)" — so the role is cut at the first bracket
+    or dash and then capped, which keeps the folder name readable.
+    """
+    def clean(value: str, words: int) -> str:
+        value = re.split(r"[(\[|]|\s[-—–]\s", value)[0]
+        return "-".join(re.sub(r"[^a-z0-9\s]+", " ", value.lower()).split()[:words])
+
+    slug = "-".join(part for part in (clean(company, 3), clean(role, 5)) if part)
+    return f"{datetime.now():%Y-%m-%d}-{slug or 'application'}"
 
 
 def generate_application_package(
