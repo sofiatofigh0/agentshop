@@ -377,6 +377,21 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
                 background:var(--surface-2); }
 .sheet footer .msg { flex:1; min-width:180px; font-size:0.8rem; color:var(--text-2); }
 .sheet footer .msg.bad { color:var(--skip); }
+.sheet footer .msg.learned { color:var(--accent); }
+.sheet .why { border-top:1px solid var(--border); padding:11px 20px 0; background:var(--surface-2); }
+.sheet .why label { display:block; font-size:0.78rem; color:var(--text-3); margin-bottom:5px; }
+.sheet .why input { width:100%; font:inherit; font-size:0.83rem; padding:8px 11px;
+                    border:1px solid var(--border); border-radius:7px;
+                    background:var(--surface); color:var(--text); }
+.sheet .why input:focus { outline:none; border-color:var(--accent); }
+
+/* ---------- learned preferences ---------- */
+.lessons { list-style:none; padding:0; margin:10px 0 0; }
+.lessons li { padding:10px 0; border-top:1px solid var(--border); font-size:0.84rem;
+              display:flex; gap:10px; align-items:flex-start; }
+.lessons .body { flex:1; }
+.lessons .scope { display:block; margin-top:4px; color:var(--text-3); font-size:0.76rem;
+                  font-family:var(--mono); }
 .q { display:block; margin-top:6px; }
 
 </style>
@@ -414,6 +429,12 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
       <ul class="hist" id="hist"></ul>
       <p class="muted" id="histempty">Nothing yet. Runs appear here with the company, role and
       verdict, so you can tell later what each set of documents was for.</p>
+
+      <div class="phase-head"><span class="t">Learned from your edits</span></div>
+      <ul class="lessons" id="lessons"></ul>
+      <p class="muted" id="lessonsempty">Nothing learned yet. Edit a generated document and
+      the change &mdash; plus any reason you give &mdash; becomes a preference future runs
+      follow. Style only: facts always come from your experience bank.</p>
     </div>
   </div>
 </div>
@@ -422,6 +443,12 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
   <div class="panel">
     <header><span class="name" id="sheetname"></span><span class="where" id="sheetwhere"></span></header>
     <textarea id="sheettext" spellcheck="false"></textarea>
+    <div class="why">
+      <label for="sheetnote">Why this change? (optional &mdash; a reason teaches future runs
+      more than the edit alone)</label>
+      <input id="sheetnote" type="text" spellcheck="false"
+             placeholder="e.g. lead with the problem, not my job title">
+    </div>
     <footer>
       <span class="msg" id="sheetmsg">Edits re-render the PDF from this text. The factuality
       check does not run again, so anything you add here is on you.</span>
@@ -528,6 +555,29 @@ function wireDelete() {
   });
 }
 
+async function loadLessons() {
+  const items = await (await fetch("/api/lessons")).json();
+  $("#lessonsempty").style.display = items.length ? "none" : "block";
+  $("#lessons").innerHTML = items.map(item => `
+    <li>
+      <span class="body">${esc(item.lesson)}
+        <span class="scope">applies to: ${esc(item.scope || "always")}</span></span>
+      <button class="del" data-forget="${esc(item.id)}" title="Forget this"
+              aria-label="Forget this preference">&times;</button>
+    </li>`).join("");
+}
+
+// Nothing here is inferred well enough to be permanent, so any of it can go.
+document.addEventListener("click", async (event) => {
+  const btn = event.target.closest("[data-forget]");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await fetch("/api/lessons/" + encodeURIComponent(btn.dataset.forget), { method: "DELETE" });
+    loadLessons();
+  } catch (e) { btn.disabled = false; }
+});
+
 // ---------------------------------------------------------------- editor
 //
 // A PDF is not the editable thing here: the one-page fit is a property of the
@@ -544,7 +594,8 @@ const SHEET_HINT = "Edits re-render the PDF from this text. The factuality check
 
 function say(text, bad) {
   sheet.msg.textContent = text;
-  sheet.msg.classList.toggle("bad", !!bad);
+  // Assign rather than toggle: the "learned" state also writes this class.
+  sheet.msg.className = bad ? "msg bad" : "msg";
 }
 
 document.addEventListener("click", async (event) => {
@@ -569,6 +620,7 @@ function openSheet(folder, key, file, markdown) {
   sheet.name.textContent = label(file);
   sheet.where.textContent = folder;
   sheet.text.value = markdown;
+  $("#sheetnote").value = "";
   say(SHEET_HINT, false);
   sheet.save.disabled = false;
   sheet.el.hidden = false;
@@ -602,7 +654,7 @@ sheet.save.addEventListener("click", async () => {
     const res = await fetch(
       `/api/document/${encodeURIComponent(sheet.folder)}/${encodeURIComponent(sheet.key)}`,
       { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markdown }) });
+        body: JSON.stringify({ markdown, note: $("#sheetnote").value.trim() }) });
     const data = await res.json();
     if (!res.ok) { say(data.error || "Could not save.", true); sheet.save.disabled = false; return; }
 
@@ -610,15 +662,25 @@ sheet.save.addEventListener("click", async () => {
     sheet.original = markdown;
     // A resume or letter that no longer fits is worth saying out loud — it is
     // saved either way, but it is now a two-page document.
+    const fit = data.fitted ? `one page at ${data.body_pt}pt`
+                            : `${data.pages} page${data.pages === 1 ? "" : "s"}`;
+    const lesson = data.learned && data.learned.lesson;
+
     if (data.fitted && data.pages > 1) {
       say(`Saved, but it came to ${data.pages} pages even at ${data.body_pt}pt. Trim it to fit.`, true);
       sheet.save.disabled = false;
+    } else if (lesson) {
+      // Worth showing, and worth leaving on screen: a wrong lesson is only
+      // correctable if she sees it was drawn.
+      sheet.msg.innerHTML = `Saved \u2014 ${esc(fit)}. <strong>Learned:</strong> ${esc(lesson)}`;
+      sheet.msg.className = "msg learned";
+      setTimeout(() => { if (sheet.open) closeSheet(true); }, 3200);
     } else {
-      say(data.fitted ? `Saved \u2014 one page at ${data.body_pt}pt.`
-                      : `Saved \u2014 ${data.pages} page${data.pages === 1 ? "" : "s"}.`, false);
+      say(`Saved \u2014 ${fit}.`, false);
       setTimeout(() => { if (sheet.open) closeSheet(true); }, 900);
     }
     loadHistory();
+    loadLessons();
   } catch (e) {
     say("Could not reach the local server.", true);
     sheet.save.disabled = false;
@@ -690,6 +752,7 @@ $("#go").addEventListener("click", async () => {
 });
 
 loadHistory();
+loadLessons();
 
 </script>
 </body>

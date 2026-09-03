@@ -28,6 +28,8 @@ from flask import Flask, jsonify, request, send_from_directory
 load_dotenv()
 
 from agent import MODEL, evaluate, parse_field, parse_recommendation, report_text
+import lessons
+
 from application_generator import (
     OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
 )
@@ -254,13 +256,39 @@ def write_document(folder: str, key: str):
         return jsonify({"error": f"Could not render that text: {exc}"}), 400
     os.replace(draft, final)
 
+    before = entry["markdown"]
     entry["markdown"] = markdown_text
     with open(os.path.join(run_dir, SOURCES_FILE), "w") as handle:
         json.dump(sources, handle, indent=2)
 
+    # Learning happens after the save, never before it, and lessons.record()
+    # swallows its own failures: an edit that cannot be distilled is still an
+    # edit that saved correctly, and the save must not fail because of it.
+    with open(os.path.join(run_dir, "run.json")) as handle:
+        meta = json.load(handle)
+    learned = lessons.record(
+        before, markdown_text, (request.get_json(silent=True) or {}).get("note", ""),
+        document=key, company=meta.get("company", ""), role=meta.get("role", ""),
+        folder=folder,
+    )
+
     fitted = entry["style"] in ("resume", "letter")
     return jsonify({"file": entry["file"], "pages": pages, "body_pt": pt,
-                    "fitted": fitted})
+                    "fitted": fitted, "learned": learned})
+
+
+@app.get("/api/lessons")
+def list_lessons():
+    """What past edits have taught, newest first."""
+    return jsonify(list(reversed(lessons.load())))
+
+
+@app.delete("/api/lessons/<lesson_id>")
+def delete_lesson(lesson_id: str):
+    """Drop one lesson. Nothing here is inferred well enough to be permanent."""
+    if not lessons.forget(lesson_id):
+        return jsonify({"error": "No such lesson."}), 404
+    return jsonify({"deleted": lesson_id})
 
 
 @app.get("/outputs/<path:relative>")
