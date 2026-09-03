@@ -158,7 +158,10 @@ python evals.py           # run the fixture suite instead
 
 ### The local UI
 
-`python app.py` serves a small page on `localhost:8000`. Paste a job
+`python app.py` serves a small page on `localhost:8000`, or on `PORT` if that
+is set. If a server from earlier is still running there it says so and points
+at it rather than starting a second one; if something unrelated holds the port
+it moves to the next free one and prints the address. Paste a job
 description, press Run, and watch the stages tick past — a run takes several
 minutes, so the work happens on a background thread and the page polls for
 progress rather than holding an HTTP request open.

@@ -18,7 +18,9 @@ the page polls /api/status for progress lines and the finished result.
 import json
 import os
 import shutil
+import socket
 import threading
+import urllib.request
 import uuid
 from datetime import datetime
 
@@ -297,8 +299,57 @@ def outputs(relative: str):
     return send_from_directory(os.path.join(ROOT, OUTPUT_DIR), relative)
 
 
+DEFAULT_PORT = int(os.environ.get("PORT", 8000))
+TITLE = "Job Opportunity Agent"
+
+
+def _listening(port: int) -> bool:
+    with socket.socket() as probe:
+        probe.settimeout(0.4)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _is_this_app(port: int) -> bool:
+    """Whether the thing on this port is another copy of this server."""
+    # A proxy in the environment would answer for localhost and lie about it.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"http://127.0.0.1:{port}/", timeout=1.5) as response:
+            return f"<title>{TITLE}" in response.read(4096).decode("utf-8", "replace")
+    except Exception:
+        return False
+
+
+def choose_port(preferred: int) -> int:
+    """Where to serve. Exits if this app is already running there.
+
+    A server left running from earlier is the usual reason this app looks like
+    it will not start: the second one exits with "Address already in use" and
+    the browser, pointed at a port nothing is answering on, just spins. Neither
+    message says what to do about it, so the situation is handled here instead
+    of being reported.
+    """
+    if not _listening(preferred):
+        return preferred
+
+    if _is_this_app(preferred):
+        print(f"{TITLE} is already running.\n\n"
+              f"    Open http://localhost:{preferred}\n\n"
+              f"Nothing new was started. To restart it instead, stop that one first:\n"
+              f"    lsof -ti:{preferred} | xargs kill")
+        raise SystemExit(0)
+
+    for port in range(preferred + 1, preferred + 20):
+        if not _listening(port):
+            print(f"Port {preferred} is taken by something else, so this is on {port}.")
+            return port
+
+    raise SystemExit(f"Ports {preferred}-{preferred + 19} are all in use.")
+
+
 if __name__ == "__main__":
     # Bound to localhost on purpose: this runs the real agent with your key and
     # your private experience bank, and is not built to face the internet.
-    print("Job Opportunity Agent — http://localhost:8000")
-    app.run(host="127.0.0.1", port=8000, debug=False)
+    port = choose_port(DEFAULT_PORT)
+    print(f"{TITLE} — http://localhost:{port}")
+    app.run(host="127.0.0.1", port=port, debug=False)
