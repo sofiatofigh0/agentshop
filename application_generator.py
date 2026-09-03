@@ -187,19 +187,50 @@ Write a resume for this specific job, guided by the evidence map you are given.
 Rows marked STRONG earn the most space and the highest position; rows marked
 NONE must not be papered over.
 
-Structure: name and contact line, a three-line professional summary aimed at
-this role, then Experience (most relevant first, with the strongest bullets
-first within each role), then Skills, then Education, then anything else that
-helps.
+Emit EXACTLY this structure. The renderer routes these sections into a
+two-column template, so the headings and the order of the first three lines
+matter:
 
-Keep every employer, title and date exactly as the bank states them. Prefer
-bullets that carry a defensible number.
+# <full name>
+**<professional title, aimed at this role — at most five words and 42
+characters, e.g. "AI Product Manager" or "Platform Product Manager". It sits
+beside the contact block and must not wrap.>**
+<one contact line, items separated by " · ">
 
-LENGTH: aim for one page — roughly 600 words. Spend them where the evidence map
-says STRONG: the most relevant role earns four or five bullets, the next two or
-three, older or less relevant roles one or two. Write it tight, but do not drop
-evidence the job actually asks for in order to hit a word count; the renderer
-tightens the typography to fit whatever you write onto a single page.
+## Profile
+<three or four lines of prose, aimed at this role>
+
+## Skills
+- <six to nine short skill phrases, most relevant first>
+
+## Experience
+### <Role> — <Company> | <dates>
+<optional single line describing the employer or scope>
+- <bullet>
+- <bullet>
+
+### <Role> — <Company> | <dates>
+- <bullet>
+
+## Selected Projects
+- **<name>** — <one line>
+
+## Education
+**<credential>**
+<institution> · <dates>
+
+Rules for that structure:
+- The contact line must include the portfolio URL and, when one is set, its
+  password, since a gated link without the password is worse than no link.
+- Roles go newest first UNLESS a less recent role is markedly more relevant to
+  this job, in which case lead with that one.
+- The pipe before the dates is required — it is how the renderer right-aligns
+  them. Keep every date exactly as the bank states it.
+- Profile, Skills and Education render in the narrow left column; Experience and
+  Selected Projects render in the wide right column. Keep left-column content
+  short so it does not outrun the right.
+- Omit Selected Projects entirely if nothing there answers a requirement.
+- No other top-level sections.
 
 This is a document the candidate submits to an employer. It must contain ONLY
 the resume. Never add a section assessing fit, listing gaps, weaknesses,
@@ -330,7 +361,10 @@ letterhead:
 
 Then the greeting, the body paragraphs, and the candidate's name to sign off.
 Take the contact details from the experience bank's identity block; omit any
-that are empty rather than inventing them.
+that are empty rather than inventing them. If a portfolio URL is present and a
+portfolio_password is set, always give them together — for example
+"sofia-tofigh.netlify.app (password: xxxx)". A gated link without its password
+is worse than no link at all.
 """
 
 
@@ -390,10 +424,19 @@ def write_strategy(
 # --------------------------------------------------------------------------
 
 def slugify(company: str, role: str) -> str:
-    """A short, sortable folder name for one application."""
-    raw = f"{company}-{role}".lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")[:60] or "application"
-    return f"{datetime.now():%Y-%m-%d}-{slug}"
+    """A short, sortable folder name for one application.
+
+    Company and role are trimmed separately. The model sometimes returns a role
+    with trailing prose attached — "Partnerships Product Manager (reports
+    directly to the Head of Product)" — so the role is cut at the first bracket
+    or dash and then capped, which keeps the folder name readable.
+    """
+    def clean(value: str, words: int) -> str:
+        value = re.split(r"[(\[|]|\s[-—–]\s", value)[0]
+        return "-".join(re.sub(r"[^a-z0-9\s]+", " ", value.lower()).split()[:words])
+
+    slug = "-".join(part for part in (clean(company, 3), clean(role, 5)) if part)
+    return f"{datetime.now():%Y-%m-%d}-{slug or 'application'}"
 
 
 def generate_application_package(

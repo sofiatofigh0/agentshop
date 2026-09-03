@@ -47,13 +47,21 @@ IDENTITY = {
     "name": "Sofia Tofigh",
     "location": "New York, NY",
     "linkedin": "linkedin.com/in/sofia-tofigh/",
+    "portfolio": "sofia-tofigh.netlify.app",
     # Read from the environment, never committed — this repo is public.
-    # Set CANDIDATE_EMAIL and CANDIDATE_PHONE in .env (gitignored).
+    # Set these in .env, which is gitignored.
     "email": os.environ.get("CANDIDATE_EMAIL", ""),
     "phone": os.environ.get("CANDIDATE_PHONE", ""),
-    "portfolio": "",
+    # The portfolio is password-gated. The password is a secret and must never
+    # be committed — it would be published in the repo that describes the site
+    # it protects. Anything that includes the portfolio link should include this
+    # alongside it, or the reader hits a login wall and gives up.
+    "portfolio_password": os.environ.get("PORTFOLIO_PASSWORD", ""),
     "contact_source": "verified_resume",
-    "contact_logging_policy": "never log, trace, or print these fields",
+    "contact_logging_policy": (
+        "never log, trace, or print these fields — including portfolio_password, "
+        "which may appear in a generated resume or cover letter but nowhere else"
+    ),
     "experience_length": (
         "~4 years direct product management experience; ~5+ years total technical "
         "and product experience including Confluent. Never write '6 years of PM "
