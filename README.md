@@ -38,8 +38,13 @@ tools.py                  the search_web tool: schema + implementation
 candidate_profile.py      what Sofia wants — preferences, goals, constraints
 experience_bank.py        what Sofia has done — the factual source of truth
 application_generator.py  deterministic resume / letter / strategy pipeline
+ats.py                    keyword extraction and scoring, the way a screener does it
+models.py                 which model runs each step, at what effort, at what price
+lessons.py                what the candidate's own edits teach later runs
+documents.py              markdown -> PDF, including the one-page fit
 sample_jobs.py            fixtures for the eval suite
 evals.py                  the eval harness
+tests/                    unit tests; no model is called
 outputs/                  generated materials (gitignored)
 web/                      the portfolio demo (see web section below)
 ```
@@ -67,8 +72,10 @@ send the job description + tool definitions
 **Phase 2 is a workflow.** Once a role is worth pursuing, the steps are fixed:
 
 ```
-evidence map -> resume draft -> factuality review -> forced revision if needed
-             -> cover letter -> application strategy
+evidence map  -> resume draft -> [rephrasing pass] -> factuality review -> forced revision if needed
++ ATS keywords
+              -> cover letter -> application strategy
+              -> ATS report (plain Python, no model)
 ```
 
 The evidence map comes first deliberately. Asking for a resume directly produces
@@ -101,6 +108,57 @@ The bank also tags every claim with provenance — `verified_resume`,
 `candidate_provided`, `supported_inference`, or `needs_validation`. The last is
 never usable in a document, however hedged.
 
+## ATS scoring
+
+Before a person reads an application, a screening system usually scores it
+against the posting: does the resume contain the terms the posting was written
+in? Tools like Simplify and Jobscan show candidates that score so they can
+close the gap before submitting. This project does the same thing, with one
+rule the borrowed idea does not have:
+
+> A keyword is only ever worked in by rephrasing something that is already
+> true. It is never added to hit a number.
+
+How it works, in order:
+
+1. **Extract.** One cheap call on the worker model reads the posting and
+   returns the terms a screener would be configured to scan for — each with a
+   category (hard skill, tool, title, credential, domain, soft skill), how
+   firmly the posting asks for it (required, preferred, mentioned), and the
+   equivalent phrasings a screener would count ("LLM evals" for "LLM
+   evaluation"). This runs alongside the evidence map; it needs only the
+   posting.
+2. **Write with the terms in view.** The resume and cover-letter prompts get
+   the weighted list with one instruction: where a sentence already describes
+   this work, say it in the posting's own term rather than a synonym. Never
+   add a term the bank does not earn, never append lists, never repeat for
+   effect.
+3. **Score.** Plain Python. `score = 100 × weight of matched terms / weight of
+   all terms`, where weight is importance (required 3, preferred 2, mentioned
+   1) times category (soft skills count half). A match is the exact term or a
+   listed alias, singular or plural, as a whole phrase. Nothing fuzzier,
+   because a screener is not fuzzier either.
+4. **Rephrase — sometimes.** If the draft is below the target (75, Jobscan's
+   published guidance) *and* some missing term is at least mentioned in the
+   experience bank, one more call rewords the sentences that already say the
+   thing, in the posting's words, changing sentence structure where it has to.
+   It may not add a bullet, a skill, or a claim. A term the bank never
+   mentions is a gap, and no call is spent on it. The reworded draft is kept
+   only if it scores higher.
+5. **Review.** The factuality check reads whatever the rephrasing produced,
+   so nothing that pass does escapes the guardrail.
+6. **Report.** `ats_report.pdf` gives the score per document and per category,
+   what matched, what the bank mentions but did not fit naturally, what is not
+   in the bank at all (the real gaps, marked *do not add*), the title-line
+   overlap, the formatting checks a parser trips on, and whether every matched
+   term can be read back out of the finished PDF — a resume the parser cannot
+   read scores zero whatever the markdown says.
+
+The score is a proxy for one filter, not a measure of quality. It is shown
+beside the verdict so a low number can be understood, not so it can be chased.
+Editing a resume or letter in the UI re-scores it on the spot, with no model
+call, so the effect of a change is visible immediately.
+
 ## Eval design
 
 `evals.py` runs four fixture postings and scores two different things:
@@ -129,13 +187,51 @@ behavior. Scoring only the verdict hides that.
    represented identically, so one soft mismatch could reject an excellent role.
    Separating them improved reasoning more than any prompt edit.
 
+## What a run costs
+
+Each run makes seven to ten model calls: one to four in the agent loop, up to
+three nested web-search summaries, and six or seven in generation. A run used
+to cost more than a dollar; most of that was reasoning depth spent on steps
+that do not need it, and search results re-billed on every turn. The levers,
+in the order they were applied:
+
+| Lever | What changed | Costs quality? |
+|---|---|---|
+| Per-step effort | Verdict, evidence map and factuality review keep the default depth. Resume, letter, strategy and the rephrasing pass run at `medium`; revision, search summaries, keyword extraction and lesson distillation at `low`. See `EFFORT` in `models.py`. | Not measurably for writing and extraction steps; the reasoning steps are untouched |
+| Search sub-calls | Two searches per query instead of three, a 200-word summary shape, `low` effort, and a 1,500-token cap. Their usage is now counted in the trace. | No — the agent reads a summary either way |
+| Run context cached | The posting and research sit in the system prompt behind a second cache marker, written once by the evidence-map call and read back by every later call, instead of travelling in the user turn at full price six times. | No |
+| Loop caching | The agent loop moves a cache marker to the newest user turn, so each turn reads the history it already sent. | No |
+| Priced trace | `models.py` carries the price table; the trace and the UI show dollars per run instead of "roughly $1". | No |
+
+Three optional settings in `.env` go further:
+
+- `ANTHROPIC_WORKER_MODEL` — a cheaper model (say `claude-sonnet-5`) for the
+  extraction-shaped side jobs only: search summaries, keyword extraction,
+  lesson distillation. The verdict and every document still come from
+  `ANTHROPIC_MODEL`.
+- `PROMPT_CACHE_TTL=1h` — keeps the experience bank in the prompt cache for an
+  hour rather than five minutes. A write then costs 2× instead of 1.25×, but
+  every further run in the hour reads it at a tenth of the price. Worth it
+  when several postings are run in one sitting.
+- `ANTHROPIC_EFFORT` — forces one effort on every step, for comparing settings
+  with `evals.py` one change at a time.
+
+Estimated from the code rather than measured — nothing in this repo spends
+money on a benchmark — the changes take a no-search run on Opus 5 from roughly
+$1.20 to roughly $0.70–0.80, and a two-search run from roughly $1.90 to about
+$1.00; `ANTHROPIC_WORKER_MODEL=claude-sonnet-5` takes a further ten to fifteen
+cents off a searching run. Most of what remains is the reasoning on the three
+steps that keep the default depth. The trace prints the real number for every
+run, which is the figure to trust.
+
 ## Limitations
 
 - Four eval fixtures. Enough to catch regressions, not to measure quality.
+- The ATS score measures one filter — exact-term coverage — and nothing about
+  whether a person will like the document. Treat a low score as a prompt to
+  read the report, not as a target.
 - Tool-use behavior varies between runs on identical input.
 - The factuality check is a second model call, not a formal verifier.
-- Reported token counts exclude the nested calls inside `search_web`, so a
-  searching run costs more than the trace shows.
 - One search tool, one candidate. A personal workflow, not a product.
 
 ## Running the CLI
@@ -154,6 +250,7 @@ to fill gaps. Then:
 python app.py             # web UI at http://localhost:8000  ← easiest
 python agent.py           # or the terminal: paste a JD, end with END on its own line
 python evals.py           # run the fixture suite instead
+python -m unittest        # the unit tests; no model is called
 ```
 
 ### The local UI
@@ -167,16 +264,18 @@ minutes, so the work happens on a background thread and the page polls for
 progress rather than holding an HTTP request open.
 
 When it finishes you get the verdict, the reasoning, any searches the agent
-chose to make, and links to the five PDFs. Past applications stay listed down
-the right-hand side with company, role, date and verdict, so months later you
-can tell what each set of documents was for.
+chose to make, the ATS score of the resume and the cover letter, what the run
+cost, and links to the six PDFs. Past applications stay listed down the
+right-hand side with company, role, date, verdict and score, so months later
+you can tell what each set of documents was for.
 
 Each run writes to its own folder — `outputs/2026-09-02-addepar-partnerships-product-manager/` —
 alongside a `run.json` recording the company, role, verdict, reasoning and the
 original posting. Nothing is overwritten.
 
 This is not the portfolio demo. It runs the real agent against your real key and
-your private experience bank, so **every run costs money** (roughly $1). The
+your private experience bank, so **every run costs money** — the amount is
+shown when it finishes, and "What a run costs" above says where it goes. The
 server binds to `127.0.0.1` deliberately; it is not built to face the internet.
 
 ### Editing a document after it is generated
@@ -193,7 +292,8 @@ therefore writes a `sources.json` holding the markdown behind every PDF, and an
 edit re-renders through the same entry point generation uses.
 
 Two things worth knowing. The factuality check does not re-run on an edit, so
-anything added by hand is unguarded. And packages generated before this existed
+anything added by hand is unguarded — the ATS score does re-run, in plain
+Python, so the effect of a wording change is visible at once. And packages generated before this existed
 kept no markdown; those rows say so and can only be made editable by re-running
 the posting.
 

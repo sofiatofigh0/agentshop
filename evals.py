@@ -11,6 +11,7 @@ expectation was.
 """
 
 from agent import evaluate, parse_recommendation, report_text
+from models import money
 from sample_jobs import SAMPLES
 
 # recommendation: what a careful human would conclude for THIS candidate profile.
@@ -39,6 +40,7 @@ if __name__ == "__main__":
     total_searches = 0
     total_input = 0
     total_output = 0
+    total_usd = 0.0
 
     for name, expected in EXPECTED.items():
         result = evaluate(SAMPLES[name])
@@ -54,6 +56,10 @@ if __name__ == "__main__":
         total_searches += result["search_count"]
         total_input += result["input_tokens"]
         total_output += result["output_tokens"]
+        # None when the model is not in the price table; the sum is then None too.
+        if total_usd is not None:
+            total_usd = (None if result["cost_usd"] is None
+                         else total_usd + result["cost_usd"])
 
         print(f"{name}")
         print(f"  expected recommendation: {expected['recommendation']}")
@@ -65,6 +71,7 @@ if __name__ == "__main__":
         print(f"  search behavior:         {'PASS' if search_ok else 'FAIL'}")
         print(f"  input tokens:            {result['input_tokens']}")
         print(f"  output tokens:           {result['output_tokens']}")
+        print(f"  cost (incl. searches):   {money(result['cost_usd'])}")
         print()
 
     total = len(EXPECTED)
@@ -73,3 +80,4 @@ if __name__ == "__main__":
     print(f"Total searches: {total_searches}")
     print(f"Total input tokens: {total_input}")
     print(f"Total output tokens: {total_output}")
+    print(f"Total cost: {money(total_usd)}")

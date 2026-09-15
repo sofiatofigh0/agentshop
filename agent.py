@@ -30,12 +30,15 @@ from dotenv import load_dotenv
 
 from candidate_profile import CANDIDATE_PROFILE
 from application_generator import generate_application_package
+import tools
 from tools import TOOLS, TOOL_FUNCTIONS
 
 # Reads the .env file next to this script and copies its values into the
 # environment. After this, ANTHROPIC_API_KEY and ANTHROPIC_MODEL are readable
 # with os.environ, and the SDK can find the key on its own.
 load_dotenv()
+
+from models import Spend, cache_control, money, request_options  # noqa: E402
 
 MODEL = os.environ.get("ANTHROPIC_MODEL")
 
@@ -117,13 +120,32 @@ SYSTEM_PROMPT = (
 )
 
 
+def mark_cache(messages: list) -> None:
+    """Move the conversation's cache marker to the end of the newest user turn.
+
+    The history is resent on every turn of the loop. With the marker on the
+    latest user message, the next turn reads everything up to here from the
+    cache and pays full price only for what the turn added. Earlier markers
+    are removed first: the API allows four per request, and the cached entries
+    they created stay readable as prefixes without them.
+    """
+    for message in messages:
+        if message["role"] == "user" and isinstance(message["content"], list):
+            for block in message["content"]:
+                block.pop("cache_control", None)
+    last = messages[-1]
+    if isinstance(last["content"], str):
+        last["content"] = [{"type": "text", "text": last["content"]}]
+    last["content"][-1]["cache_control"] = cache_control()
+
+
 def evaluate(job_description: str) -> dict:
     """Run the agent loop on one job description.
 
     Returns the final response plus a little metadata about how the run went:
     how many searches it took and what it cost. Token counts are summed across
-    every call the loop made, not just the last one. They do not include the
-    nested API calls that search_web itself makes.
+    every call the loop made, not just the last one. The nested calls inside
+    search_web are counted separately, under "search", and both are priced.
     """
     client = anthropic.Anthropic()
 
@@ -134,43 +156,34 @@ def evaluate(job_description: str) -> dict:
     research_notes = []  # kept so the generation stage can reuse what was found
     searches_used = 0
     search_queries = []
-    input_tokens = 0
-    output_tokens = 0
-    cache_read = 0
+    spend = Spend()
+    tools.begin_usage()
 
     # At most MAX_TOOL_CALLS rounds of searching, one round to tell the model its
     # budget is gone, and one round for it to write the final answer. Bounding
     # the loop in Python is what makes "cannot search forever" a guarantee
     # rather than a request.
     for _ in range(MAX_TOOL_CALLS + 2):
+        mark_cache(messages)
         response = client.messages.create(
             model=MODEL,
             max_tokens=16000,
             # The system prompt is identical on every turn of every run, so it
             # is cached and read back cheaply instead of re-billed each time.
             system=[{"type": "text", "text": SYSTEM_PROMPT,
-                     "cache_control": {"type": "ephemeral"}}],
+                     "cache_control": cache_control(long_lived=True)}],
             tools=TOOLS,  # the schemas from tools.py, sent on every turn
             messages=messages,
+            **request_options("verdict"),
         )
-        input_tokens += response.usage.input_tokens
-        output_tokens += response.usage.output_tokens
-        cache_read += getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        spend.add(MODEL, response.usage)
 
         # HOW CLAUDE ASKS FOR A TOOL: it does not call anything itself. It ends
         # its turn with stop_reason == "tool_use" and puts one or more tool_use
         # blocks in its content, each with a name, an id, and the arguments it
         # chose. Any other stop_reason means it is done and this is the answer.
         if response.stop_reason != "tool_use":
-            return {
-                "response": response,
-                "search_count": searches_used,
-                "search_queries": search_queries,
-                "research": "\n\n".join(research_notes),
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cache_read": cache_read,
-            }
+            break
 
         # The assistant turn must go into the history verbatim, tool_use blocks
         # and all, or the next request will not line up with the tool results.
@@ -203,15 +216,22 @@ def evaluate(job_description: str) -> dict:
 
         messages.append({"role": "user", "content": results})
 
-    # Only reachable if the model asked for tools every single round.
+    # Falls through here either with the final answer or, if the model asked
+    # for tools every single round, with its last tool request.
+    search_spend = tools.collect_usage()
+    total = Spend()
+    total.absorb(spend)
+    total.absorb(search_spend)
     return {
         "response": response,
         "search_count": searches_used,
         "search_queries": search_queries,
         "research": "\n\n".join(research_notes),
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "cache_read": cache_read,
+        "input_tokens": spend.input_tokens,
+        "output_tokens": spend.output_tokens,
+        "cache_read": spend.cache_read,
+        "search": search_spend.as_dict(),
+        "cost_usd": total.dollars(),
     }
 
 
@@ -303,9 +323,18 @@ def main() -> None:
         print(f"\nWrote to {package['run_dir']}/:")
         for path in package["files"].values():
             print(f"  {os.path.basename(path)}")
+        scores = package["ats"]
+        if scores["resume"] is not None:
+            print(f"\nATS match — resume {scores['resume']}/100, "
+                  f"cover letter {scores['cover_letter']}/100 (target {scores['target']})")
 
     # --- trace ------------------------------------------------------------
     # Deliberately does not echo the candidate profile or the job description.
+    search = result["search"]
+    agent_usd = result["cost_usd"]
+    generation_usd = package["cost_usd"] if package else 0.0
+    total_usd = (None if agent_usd is None or generation_usd is None
+                 else agent_usd + generation_usd)
     print("\n--- trace ---")
     print(f"Recommendation:            {recommendation}")
     print(f"Searches used:             {result['search_count']}")
@@ -314,12 +343,18 @@ def main() -> None:
     print(f"Main agent input tokens:   {result['input_tokens']}")
     print(f"Main agent output tokens:  {result['output_tokens']}")
     print(f"Cached tokens read:        {result['cache_read']}")
+    print(f"Search input tokens:       {search['input']}  ({search['web_searches']} web searches)")
+    print(f"Search output tokens:      {search['output']}")
     print(f"Generation calls:          {package['generation_calls'] if package else 0}")
     if package:
         print(f"Generation input tokens:   {package['input_tokens']}")
         print(f"Generation output tokens:  {package['output_tokens']}")
         print(f"Generation cache written:  {package['cache_written']}")
         print(f"Generation cache read:     {package['cache_read']}")
+    print(f"Evaluation cost:           {money(agent_usd)}")
+    if package:
+        print(f"Generation cost:           {money(generation_usd)}")
+    print(f"Total cost:                {money(total_usd)}")
 
 
 if __name__ == "__main__":

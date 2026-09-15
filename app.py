@@ -30,10 +30,11 @@ from flask import Flask, jsonify, request, send_from_directory
 load_dotenv()
 
 from agent import MODEL, evaluate, parse_field, parse_recommendation, report_text
+import ats
 import lessons
 
 from application_generator import (
-    OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
+    ATS_FILE, OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
 )
 
 app = Flask(__name__, static_folder=None)
@@ -71,7 +72,10 @@ def _execute(run_id: str, job_description: str) -> None:
             "report": report,
             "agent_tokens": {"input": result["input_tokens"],
                              "output": result["output_tokens"],
-                             "cache_read": result["cache_read"]},
+                             "cache_read": result["cache_read"],
+                             "search": result["search"],
+                             "usd": result["cost_usd"]},
+            "cost_usd": result["cost_usd"],
         })
 
         if recommendation == "UNPARSED":
@@ -94,7 +98,12 @@ def _execute(run_id: str, job_description: str) -> None:
         state["files"] = [os.path.basename(p) for p in package["files"].values()]
         state["generation_tokens"] = {"input": package["input_tokens"],
                                       "output": package["output_tokens"],
-                                      "cache_read": package["cache_read"]}
+                                      "cache_read": package["cache_read"],
+                                      "usd": package["cost_usd"]}
+        state["ats"] = package["ats"]
+        agent_usd, generation_usd = state.get("cost_usd"), package["cost_usd"]
+        state["cost_usd"] = (None if agent_usd is None or generation_usd is None
+                             else round(agent_usd + generation_usd, 4))
         state["status"] = "done"
     except Exception as exc:  # a failed run must report, not vanish
         state["status"] = "error"
@@ -263,11 +272,17 @@ def write_document(folder: str, key: str):
     with open(os.path.join(run_dir, SOURCES_FILE), "w") as handle:
         json.dump(sources, handle, indent=2)
 
+    with open(os.path.join(run_dir, "run.json")) as handle:
+        meta = json.load(handle)
+
+    # An edited resume or letter is re-scored against the posting's keywords
+    # on the spot — plain Python, no model call — so the score the candidate
+    # sees is the score of the text they just saved.
+    rescored = _rescore(run_dir, key, markdown_text, meta)
+
     # Learning happens after the save, never before it, and lessons.record()
     # swallows its own failures: an edit that cannot be distilled is still an
     # edit that saved correctly, and the save must not fail because of it.
-    with open(os.path.join(run_dir, "run.json")) as handle:
-        meta = json.load(handle)
     learned = lessons.record(
         before, markdown_text, (request.get_json(silent=True) or {}).get("note", ""),
         document=key, company=meta.get("company", ""), role=meta.get("role", ""),
@@ -276,7 +291,32 @@ def write_document(folder: str, key: str):
 
     fitted = entry["style"] in ("resume", "letter")
     return jsonify({"file": entry["file"], "pages": pages, "body_pt": pt,
-                    "fitted": fitted, "learned": learned})
+                    "fitted": fitted, "learned": learned, "ats": rescored})
+
+
+def _rescore(run_dir: str, key: str, markdown_text: str, meta: dict):
+    """Re-score one edited document. Returns the new score, or None when the
+    run has no keywords or the document is not one a screener reads."""
+    if key not in ("resume", "cover_letter"):
+        return None
+    path = os.path.join(run_dir, ATS_FILE)
+    if not os.path.isfile(path):
+        return None
+    with open(path) as handle:
+        data = json.load(handle)
+    keywords = data.get("keywords") or []
+    if not keywords:
+        return None
+
+    scored = ats.score(keywords, markdown_text)
+    data[key] = ats.summary(scored)
+    with open(path, "w") as handle:
+        json.dump(data, handle, indent=2)
+
+    meta.setdefault("ats", {"target": data.get("target", ats.target_score())})[key] = scored["score"]
+    with open(os.path.join(run_dir, "run.json"), "w") as handle:
+        json.dump(meta, handle, indent=2)
+    return scored["score"]
 
 
 @app.get("/api/lessons")

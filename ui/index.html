@@ -340,6 +340,12 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
 .hist .links .note { color:var(--text-3); font-size:0.76rem; font-style:italic; }
 .hist .links a { font-size:0.79rem; color:var(--accent); text-decoration:none; }
 .verdict.sm { font-size:0.76rem; padding:2px 8px; }
+.ats { font-family:var(--mono); font-size:0.72rem; font-weight:600; letter-spacing:0.05em;
+       padding:2px 8px; border-radius:4px; border:1px solid currentColor; white-space:nowrap; }
+.ats.good { color:var(--apply); }
+.ats.mid { color:var(--maybe); }
+.ats.low { color:var(--skip); }
+.atsrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:0.85rem; }
 .hist .top { align-items:center; }
 .hist .right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
 .del { border:none; background:none; padding:3px 6px; border-radius:5px; cursor:pointer;
@@ -401,7 +407,7 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
 <div class="wrap">
   <div class="appbar">
     <h1>Job Opportunity Agent</h1>
-    <span class="warn">Runs locally against your own key &middot; each run costs roughly $1</span>
+    <span class="warn">Runs locally against your own key &middot; the cost of each run is shown when it finishes</span>
   </div>
 
   <div class="cols">
@@ -467,9 +473,18 @@ const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").repl
 const LABELS = {
   "tailored_resume.pdf":"Resume", "cover_letter.pdf":"Cover letter",
   "application_strategy.pdf":"Strategy", "evidence_map.pdf":"Evidence map",
-  "factuality_review.pdf":"Factuality review"
+  "factuality_review.pdf":"Factuality review", "ats_report.pdf":"ATS report"
 };
 const label = f => LABELS[f] || f;
+
+// Weighted share of the posting's own terms a document uses. Green at or
+// above the target, amber within fifteen points of it, red below that.
+function atsChip(score, target) {
+  if (score == null) return "";
+  const t = target == null ? 75 : target;
+  const cls = score >= t ? "good" : score >= t - 15 ? "mid" : "low";
+  return `<span class="ats ${cls}" title="ATS keyword match, target ${t}">ATS ${score}</span>`;
+}
 
 // The API addresses a document by key, never by filename, so the server
 // decides which file an edit touches.
@@ -502,6 +517,7 @@ async function loadHistory() {
         <span class="ro">${r.role ? "&mdash; " + esc(r.role) : ""}</span></span>
         <span class="right">
           <span class="verdict sm ${esc(r.recommendation)}">${esc(r.recommendation)}</span>
+          ${r.ats ? atsChip(r.ats.resume, r.ats.target) : ""}
           <button class="del" data-del="${esc(r.folder)}" title="Delete this application"
                   aria-label="Delete this application">&times;</button>
         </span>
@@ -662,8 +678,9 @@ sheet.save.addEventListener("click", async () => {
     sheet.original = markdown;
     // A resume or letter that no longer fits is worth saying out loud — it is
     // saved either way, but it is now a two-page document.
-    const fit = data.fitted ? `one page at ${data.body_pt}pt`
-                            : `${data.pages} page${data.pages === 1 ? "" : "s"}`;
+    const fit = (data.fitted ? `one page at ${data.body_pt}pt`
+                             : `${data.pages} page${data.pages === 1 ? "" : "s"}`)
+                + (data.ats != null ? `, ATS ${data.ats}/100` : "");
     const lesson = data.learned && data.learned.lesson;
 
     if (data.fitted && data.pages > 1) {
@@ -719,11 +736,22 @@ async function poll(id) {
         <span class="kind">${esc(f)} ${editBtn(folder, f, true)}</span></li>`).join("")}</ul>`
     : `<div class="notice">No materials were generated for this run.</div>`;
 
+  const ats = s.ats && s.ats.resume != null
+    ? `<div class="card"><h4>ATS match</h4>
+        <div class="atsrow">${atsChip(s.ats.resume, s.ats.target)} <span class="muted">resume</span>
+        ${s.ats.cover_letter != null ? "&nbsp;" + atsChip(s.ats.cover_letter, s.ats.target) + ' <span class="muted">cover letter</span>' : ""}</div>
+        <p class="muted" style="margin:8px 0 0">The weighted share of the posting's own terms each document
+        uses, scored the way a screening system scores it. Which terms matched, which were left out and
+        why, and the formatting checks are in the ATS report below.</p></div>`
+    : "";
+  const cost = s.cost_usd != null
+    ? `<span class="muted">&middot; this run cost about $${s.cost_usd.toFixed(2)}</span>` : "";
+
   $("#result").innerHTML =
     `<div class="verdict-row"><span class="verdict ${esc(s.recommendation)}">${esc(s.recommendation)}</span>
-      <span class="muted">${esc(s.company || "")} ${s.role ? "&middot; " + esc(s.role) : ""}</span></div>
+      <span class="muted">${esc(s.company || "")} ${s.role ? "&middot; " + esc(s.role) : ""}</span>${cost}</div>
      <p style="color:var(--text-2);max-width:70ch">${esc(s.reasoning || "")}</p>
-     ${searches}${files}`;
+     ${searches}${ats}${files}`;
   loadHistory();
 }
 

@@ -30,6 +30,8 @@ from datetime import datetime
 
 import anthropic
 
+from models import request_options, worker_model
+
 FEEDBACK_LOG = "feedback.jsonl"
 LESSONS_FILE = "lessons.json"
 
@@ -193,12 +195,16 @@ def _distil(entry: dict) -> dict:
         f"THE EDIT:\n{entry['diff'] or '(no text change -- the note is the feedback)'}"
     )
 
+    # One sentence out of one diff is extraction, not judgement: the worker
+    # model at low effort.
+    model = worker_model()
     client = anthropic.Anthropic()
     response = client.messages.create(
-        model=os.environ["ANTHROPIC_MODEL"],
+        model=model,
         max_tokens=400,
         system=DISTILL_PROMPT,
         messages=[{"role": "user", "content": user}],
+        **request_options("distill", model),
     )
     text = "".join(b.text for b in response.content if b.type == "text").strip()
     text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.MULTILINE).strip()
