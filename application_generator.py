@@ -5,9 +5,11 @@ pursuing.
 Nothing in here is agentic. There is no loop and no tool use — Python calls the
 model in a fixed order and writes files to fixed paths:
 
-    evidence map  ->  resume draft  ->  factuality check  ->  final resume
+    evidence map  ->  resume draft  ->  [rephrasing pass]  ->  factuality check
+    + ATS keywords                  ->  final resume
                   ->  cover letter
                   ->  application strategy
+                  ->  ATS report (plain Python, no model)
 
 The three branches after the evidence map depend on nothing but the map, so
 they run concurrently. That is a wall-clock change only: same calls, same
@@ -17,6 +19,14 @@ The evidence map comes first on purpose. Asking for a resume directly produces
 keyword stuffing; asking first "which requirement does each experience actually
 answer, and how strongly" forces the selection to be justified before any prose
 gets written.
+
+The ATS pass runs the other way round from the tools it borrows the idea from.
+Simplify and Jobscan score a resume against the posting's terms and tell the
+candidate what to add. Here the score is computed the same way, but a missing
+term is only ever picked up by rewording a sentence that already says the
+thing — and only if the experience bank so much as mentions it. Everything
+else is reported as a gap. The factuality review runs after the rewording,
+not before, so nothing the pass does escapes it.
 
 All model prompts for the generation stage live in this file.
 """
@@ -32,10 +42,12 @@ import anthropic
 
 from documents import fit_pdf, page_count, write_pdf
 
+import ats
 import lessons
 
 from candidate_profile import CANDIDATE_PROFILE
 from experience_bank import EXPERIENCE_BANK, missing_fields
+from models import Spend, cache_control, main_model, request_options, worker_model
 
 # Python owns the output paths. The model never chooses where anything is saved.
 OUTPUT_DIR = "outputs"
@@ -45,6 +57,11 @@ OUTPUT_DIR = "outputs"
 # source survives, which is what makes a generated document editable after the
 # fact: an edit re-renders from markdown rather than trying to rewrite a PDF.
 SOURCES_FILE = "sources.json"
+
+# The posting's keywords and each document's score, kept beside the PDFs so an
+# edit can be re-scored without another model call.
+ATS_FILE = "ats.json"
+
 
 def _generation_facts() -> str:
     """The bank as the generator sees it.
@@ -64,12 +81,19 @@ def _generation_facts() -> str:
     for project in bank["personal_projects"]:
         project.pop("possible_metric_to_validate", None)
     STORIES.extend(bank.pop("interview_stories", []))
+    BANK_FOR_MATCHING.update(bank)
     return json.dumps(bank, indent=2)
 
 
 STORIES: list = []
+BANK_FOR_MATCHING: dict = {}
 FACTS = _generation_facts()
 PROFILE = json.dumps(CANDIDATE_PROFILE, indent=2)
+
+# The bank as running text, for deciding which missing keywords are even worth
+# a look. Built from the same trimmed copy the model sees, so an unconfirmed
+# claim cannot make a keyword look supported.
+BANK_PROSE = ats.bank_prose(BANK_FOR_MATCHING)
 
 # The rule every writing prompt inherits. Stated once, repeated by reference.
 GROUND_RULES = """The EXPERIENCE BANK below is the only source of facts about
@@ -158,10 +182,11 @@ Three hard limits, because a stretch is exactly where applications start lying:
 """
 
 
-# Everything below is byte-identical on all six generation calls, so it is sent
-# once as a cached prefix and read back at a fraction of the cost on the other
-# five. Prompt caching is prefix-matched, so the stable material must come first
-# and the per-step instructions second — swapping the order caches nothing.
+# Everything below is byte-identical on every generation call of every run, so
+# it is written to the cache once and read back at a fraction of the cost on
+# the rest. Prompt caching is prefix-matched, so the stable material must come
+# first, the per-run material second, and the per-step instructions last —
+# swapping the order caches nothing.
 STABLE_PREFIX = f"""{GROUND_RULES}
 
 EXPERIENCE BANK — the only source of facts about this candidate:
@@ -172,20 +197,42 @@ CANDIDATE PREFERENCES — context for tone and motivation, never a source of fac
 """
 
 
-def _call(step_instructions: str, user: str, max_tokens: int = 8000) -> tuple:
+def run_context(job_description: str, research: str = "") -> str:
+    """The per-run material every step reads: the posting and any research.
+
+    It sits in the system prompt behind its own cache marker, after the stable
+    prefix and before the step instructions. The evidence-map call writes it;
+    every later call of the run reads it back instead of re-sending it in the
+    user message, which is where it used to travel at full price six times.
+    """
+    context = f"JOB DESCRIPTION — the posting these documents are for:\n{job_description}\n"
+    if research:
+        context += f"\nCOMPANY RESEARCH — from a web search, unverified:\n{research}\n"
+    return context
+
+
+def _call(step: str, instructions: str, user: str, context: str = "",
+          max_tokens: int = 8000) -> tuple:
     """One plain model call. Returns (text, usage).
 
-    No tools here — this stage is a fixed pipeline, not an agent loop.
+    No tools here — this stage is a fixed pipeline, not an agent loop. `step`
+    names the effort the call runs at; `context` is the per-run block, left out
+    of the calls that must not be looking at the posting (the factuality
+    review judges the draft against the bank and nothing else).
     """
+    system = [{"type": "text", "text": STABLE_PREFIX,
+               "cache_control": cache_control(long_lived=True)}]
+    if context:
+        system.append({"type": "text", "text": context, "cache_control": cache_control()})
+    system.append({"type": "text", "text": instructions})
+
     client = anthropic.Anthropic()
     response = client.messages.create(
-        model=os.environ["ANTHROPIC_MODEL"],
+        model=main_model(),
         max_tokens=max_tokens,
-        system=[
-            {"type": "text", "text": STABLE_PREFIX, "cache_control": {"type": "ephemeral"}},
-            {"type": "text", "text": step_instructions},
-        ],
+        system=system,
         messages=[{"role": "user", "content": user}],
+        **request_options(step),
     )
     text = "\n".join(b.text for b in response.content if b.type == "text").strip()
     if not text:
@@ -240,14 +287,11 @@ what the resume and cover letter will be built on.
 """
 
 
-def build_evidence_map(job_description: str, research: str = "", guidance: str = "",
-                      stretch: str = "") -> tuple:
+def build_evidence_map(context: str, guidance: str = "", stretch: str = "") -> tuple:
     """Work out which experience answers which requirement, before writing prose."""
-    user = f"JOB DESCRIPTION:\n{job_description}"
-    if research:
-        user += f"\n\nCOMPANY RESEARCH:\n{research}"
     prompt = EVIDENCE_MAP_PROMPT + (EVIDENCE_MAP_BRIDGES if stretch else "") + guidance
-    return _call(prompt, user)
+    return _call("evidence_map", prompt,
+                 "Build the evidence map for the JOB DESCRIPTION given above.", context)
 
 
 # --------------------------------------------------------------------------
@@ -313,13 +357,50 @@ document, which the employer never sees. End after the last resume section.
 """
 
 
-def write_resume(job_description: str, evidence_map: str, guidance: str = "") -> tuple:
+def write_resume(context: str, evidence_map: str, guidance: str = "") -> tuple:
     """Draft the resume from the evidence map."""
-    user = (
-        f"JOB DESCRIPTION:\n{job_description}\n\n"
-        f"EVIDENCE MAP:\n{evidence_map}"
-    )
-    return _call(RESUME_PROMPT + guidance, user)
+    return _call("resume", RESUME_PROMPT + guidance, f"EVIDENCE MAP:\n{evidence_map}", context)
+
+
+# --------------------------------------------------------------------------
+# Step 2b: rephrasing for the posting's vocabulary — conditional
+# --------------------------------------------------------------------------
+
+PHRASING_PROMPT = """You are rewording a finished resume so that, where it
+already describes work the posting asks for, it describes it in the posting's
+own terms. A screening system matches exact terms; to it, a synonym scores
+zero. To the reader, the posting's word is usually the clearer one anyway.
+
+You are given the resume and a short list of the posting's terms it does not
+yet contain. For each term, look for a sentence, bullet, profile line or skills
+entry that already says this thing in other words, and reword it to use the
+term — changing the sentence's structure if that is what it takes to read
+naturally.
+
+What you may change: the wording and structure of sentences that are there.
+
+What you may not do:
+- add a bullet, a skills entry, a project, or a claim of any kind
+- attach a term to a sentence that does not already mean it
+- use a term the experience bank does not support, whatever the list says —
+  the list came from a text search, not from judgement, and the judgement is
+  yours
+- repeat a term for effect, or bolt one onto the end of a sentence
+- change any employer, title, date, metric, scope, or the document's structure
+
+If a term cannot be worked in by rewording something that is already true,
+leave it out. That is the expected outcome for part of the list; the report
+will record it as a gap, which is the right answer.
+
+Return the full resume in markdown, in exactly the structure you received, with
+no commentary.
+"""
+
+
+def rephrase_resume(context: str, draft: str, candidates: list) -> tuple:
+    """Reword the draft toward the posting's terms — never add to it."""
+    user = f"DRAFT RESUME:\n{draft}\n\n{ats.rephrase_block(candidates)}"
+    return _call("phrasing", PHRASING_PROMPT, user, context)
 
 
 # --------------------------------------------------------------------------
@@ -353,17 +434,21 @@ Treat these as UNSUPPORTED even though the words appear in the bank:
 
 Output a markdown table: | Claim | Verdict | Basis in the bank |
 
-List SUPPORTED claims briefly; spend your attention on the other two. Then
-write a section headed exactly "REQUIRED FIXES" listing each PARTIALLY
-SUPPORTED or UNSUPPORTED claim and how to correct it — usually by cutting it or
-weakening it to what the bank actually says. If everything checks out, write
-"REQUIRED FIXES" followed by "None."
+Give the SUPPORTED claims one line each, at most; spend your attention on the
+other two. Then write a section headed exactly "REQUIRED FIXES" listing each
+PARTIALLY SUPPORTED or UNSUPPORTED claim and how to correct it — usually by
+cutting it or weakening it to what the bank actually says. If everything
+checks out, write "REQUIRED FIXES" followed by "None."
 """
 
 
 def check_factuality(resume_draft: str) -> tuple:
-    """Second opinion on the draft. Returns the review, not a verdict."""
-    return _call(FACTUALITY_PROMPT, f"DRAFT RESUME:\n{resume_draft}")
+    """Second opinion on the draft. Returns the review, not a verdict.
+
+    Deliberately gets no job description: the question is whether the bank
+    supports each claim, and the posting has no say in that.
+    """
+    return _call("factuality", FACTUALITY_PROMPT, f"DRAFT RESUME:\n{resume_draft}")
 
 
 REVISION_PROMPT = """You are correcting a resume that failed a factuality
@@ -376,7 +461,7 @@ markdown, with no commentary.
 def revise_resume(resume_draft: str, review: str) -> tuple:
     """Rewrite the draft to remove unsupported claims."""
     user = f"DRAFT RESUME:\n{resume_draft}\n\nFACTUALITY REVIEW:\n{review}"
-    return _call(REVISION_PROMPT, user)
+    return _call("revision", REVISION_PROMPT, user)
 
 
 def review_found_problems(review: str) -> bool:
@@ -441,12 +526,9 @@ is worse than no link at all.
 """
 
 
-def write_cover_letter(job_description: str, evidence_map: str, research: str = "",
-                      guidance: str = "") -> tuple:
-    user = f"JOB DESCRIPTION:\n{job_description}\n\nEVIDENCE MAP:\n{evidence_map}"
-    if research:
-        user += f"\n\nCOMPANY RESEARCH:\n{research}"
-    return _call(COVER_LETTER_PROMPT + guidance, user, max_tokens=4000)
+def write_cover_letter(context: str, evidence_map: str, guidance: str = "") -> tuple:
+    return _call("cover_letter", COVER_LETTER_PROMPT + guidance,
+                 f"EVIDENCE MAP:\n{evidence_map}", context, max_tokens=4000)
 
 
 # --------------------------------------------------------------------------
@@ -478,19 +560,14 @@ Be direct about the gaps. A brief that only flatters is useless.
 """
 
 
-def write_strategy(
-    job_description: str, evidence_map: str, recommendation: str,
-    reasoning: str, research: str = "",
-) -> tuple:
+def write_strategy(context: str, evidence_map: str, recommendation: str,
+                   reasoning: str) -> tuple:
     user = (
-        f"JOB DESCRIPTION:\n{job_description}\n\n"
         f"EVIDENCE MAP:\n{evidence_map}\n\n"
         f"THE AGENT'S VERDICT: {recommendation}\nITS REASONING: {reasoning}\n\n"
         f"PREPARED INTERVIEW STORIES:\n{json.dumps(STORIES, indent=2)}"
     )
-    if research:
-        user += f"\n\nCOMPANY RESEARCH:\n{research}"
-    return _call(STRATEGY_PROMPT, user)
+    return _call("strategy", STRATEGY_PROMPT, user, context)
 
 
 # --------------------------------------------------------------------------
@@ -550,13 +627,13 @@ def generate_application_package(
     run_dir = os.path.join(OUTPUT_DIR, slugify(company, role))
     os.makedirs(run_dir, exist_ok=True)
 
-    # Usage is collected per call and totalled after every call has finished,
-    # so the parallel steps below never race on a running total.
-    usages = []
+    # Every call's usage lands here, priced as it arrives. The parallel steps
+    # below all add to it; it locks internally.
+    spend = Spend()
 
     def run(step):
         text, usage = step
-        usages.append(usage)   # list.append is atomic, so threads may call this
+        spend.add(main_model(), usage)
         return text
 
     # Anything short of APPLY means the agent saw a real distance between this
@@ -575,33 +652,81 @@ def generate_application_package(
         progress(f"applying {len(lessons.load())} preference(s) learned from your edits")
     guidance = stretch + learned
 
-    progress("building requirement-to-evidence map...")
-    evidence_map = run(build_evidence_map(job_description, research, guidance, stretch))
+    # The posting and the research, cached once for the whole run.
+    context = run_context(job_description, research)
+    target = ats.target_score()
+
+    def keyword_step():
+        """The posting's terms, on the worker model. A failure here costs the
+        run its score, not its documents."""
+        try:
+            extracted, usage = ats.extract_keywords(job_description)
+            spend.add(worker_model(), usage)
+            progress(f"ATS: {len(extracted['keywords'])} terms extracted from the posting")
+            return extracted
+        except Exception as exc:
+            progress(f"ATS: keyword extraction failed ({type(exc).__name__}) — "
+                     "the documents will be written without a score")
+            return {"title": "", "keywords": []}
+
+    # The evidence map and the keyword extraction both need only the posting,
+    # and share no prompt prefix, so they run side by side. The map's call is
+    # the one that writes the cached prefix and the run context; everything
+    # after it reads them.
+    progress("building requirement-to-evidence map, extracting ATS keywords...")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending_map = pool.submit(lambda: run(build_evidence_map(context, guidance, stretch)))
+        pending_keywords = pool.submit(keyword_step)
+        evidence_map = pending_map.result()
+        extracted = pending_keywords.result()
+
+    keywords = extracted["keywords"]
+    keyword_block = ats.prompt_block(extracted)
 
     # The evidence map is the only step the rest depends on. After it, the
     # resume chain, the cover letter and the strategy share no inputs, so they
-    # run at the same time rather than one after another — the same six calls,
-    # the same cost, roughly the time of three. The map's call has already
-    # written the cached prefix, so these read it instead of each writing a
-    # copy of their own, which is why the fan-out starts here and not earlier.
+    # run at the same time rather than one after another — the same calls, the
+    # same cost, roughly the time of three.
     def resume_chain():
-        draft = run(write_resume(job_description, evidence_map, guidance))
+        draft = run(write_resume(context, evidence_map, guidance + keyword_block))
+        pass_info = None
+
+        # One more call, only when it can honestly buy something: the draft
+        # is below the target AND some missing term is at least mentioned in
+        # the bank. A term the bank never mentions is a gap, and no call is
+        # spent trying to close it.
+        if keywords:
+            scored = ats.score(keywords, draft)
+            candidates, _ = ats.bank_supported(scored["missing"], BANK_PROSE)
+            if scored["score"] < target and candidates:
+                considered = min(len(candidates), ats.MAX_REPHRASE_TERMS)
+                progress(f"ATS: draft resume scores {scored['score']}/100 — rewording for "
+                         f"{considered} term(s) the bank mentions...")
+                reworded = run(rephrase_resume(context, draft, candidates))
+                rescored = ats.score(keywords, reworded)
+                kept = rescored["score"] > scored["score"]
+                pass_info = {"considered": considered, "before": scored["score"],
+                             "after": rescored["score"], "kept": kept}
+                if kept:
+                    draft = reworded
+                progress(f"ATS: resume now {rescored['score'] if kept else scored['score']}/100")
+
+        # The review reads whatever the rewording produced, so nothing that
+        # pass did is outside the guardrail.
         review = run(check_factuality(draft))
         if review_found_problems(review):
             progress("resume: unsupported claims found — revising...")
-            return run(revise_resume(draft, review)), review
+            return run(revise_resume(draft, review)), review, pass_info
         progress("resume: all claims supported.")
-        return draft, review
+        return draft, review, pass_info
 
     def cover_letter_step():
-        text = run(write_cover_letter(job_description, evidence_map, research, guidance))
+        text = run(write_cover_letter(context, evidence_map, guidance + keyword_block))
         progress("cover letter written.")
         return text
 
     def strategy_step():
-        text = run(
-            write_strategy(job_description, evidence_map, recommendation, reasoning, research)
-        )
+        text = run(write_strategy(context, evidence_map, recommendation, reasoning))
         progress("application strategy written.")
         return text
 
@@ -611,28 +736,20 @@ def generate_application_package(
         pending_resume = pool.submit(resume_chain)
         pending_letter = pool.submit(cover_letter_step)
         pending_strategy = pool.submit(strategy_step)
-        resume, review = pending_resume.result()
+        resume, review, pass_info = pending_resume.result()
         cover_letter = pending_letter.result()
         strategy = pending_strategy.result()
-
-    calls = len(usages)
-    input_tokens = sum(u.input_tokens for u in usages)
-    output_tokens = sum(u.output_tokens for u in usages)
-    cache_written = sum(getattr(u, "cache_creation_input_tokens", 0) or 0 for u in usages)
-    # If cache_read stays at zero across a run, something is silently
-    # invalidating the prefix and the saving is not happening.
-    cache_read = sum(getattr(u, "cache_read_input_tokens", 0) or 0 for u in usages)
 
     # The model writes markdown; documents.py decides how each one looks. The
     # two documents an employer receives get document typography; the internal
     # working files get a denser report layout.
-    outputs = (
+    outputs = [
         ("resume", "tailored_resume.pdf", resume, "resume"),
         ("cover_letter", "cover_letter.pdf", cover_letter, "letter"),
         ("evidence_map", "evidence_map.pdf", evidence_map, "report"),
         ("factuality_review", "factuality_review.pdf", review, "report"),
         ("strategy", "application_strategy.pdf", strategy, "report"),
-    )
+    ]
     files = {}
     for key, name, body, style in outputs:
         path = os.path.join(run_dir, name)
@@ -646,9 +763,43 @@ def generate_application_package(
                 progress(f"{name}: fitted to one page at {pt}pt")
         files[key] = path
 
+    # The ATS report: scores on the final text, the checks a parser cares
+    # about, and whether the finished PDF still reads. Plain Python, no model.
+    ats_scores = {"resume": None, "cover_letter": None, "target": target}
+    if keywords:
+        resume_scored = ats.score(keywords, resume)
+        letter_scored = ats.score(keywords, cover_letter)
+        candidates, real_gaps = ats.bank_supported(resume_scored["missing"], BANK_PROSE)
+        report = ats.report(
+            extracted, resume_scored, letter_scored, target, candidates, real_gaps,
+            ats.format_checks(resume), ats.title_match(extracted["title"], resume),
+            ats.pdf_text_check(files["resume"], resume_scored["matched"]), pass_info,
+        )
+        ats_scores.update({"resume": resume_scored["score"],
+                           "cover_letter": letter_scored["score"]})
+        progress(f"ATS: resume {resume_scored['score']}/100, "
+                 f"cover letter {letter_scored['score']}/100 (target {target})")
+    else:
+        resume_scored = letter_scored = None
+        report = ats.report(extracted, None, None, target, [], [], [], {}, {})
+    path = os.path.join(run_dir, "ats_report.pdf")
+    write_pdf(report, path, "report")
+    files["ats_report"] = path
+
+    with open(os.path.join(run_dir, ATS_FILE), "w") as handle:
+        json.dump({
+            "title": extracted["title"],
+            "keywords": keywords,
+            "target": target,
+            "resume": ats.summary(resume_scored) if resume_scored else None,
+            "cover_letter": ats.summary(letter_scored) if letter_scored else None,
+            "rephrasing_pass": pass_info,
+        }, handle, indent=2)
+
     # The markdown behind each PDF, so it can be edited and re-rendered later.
     # `file` and `style` live here too: an edit then names a document by key and
     # the server looks up where it goes, rather than taking a path from a caller.
+    # The ATS report is not here: it is derived, and re-derived on every edit.
     with open(os.path.join(run_dir, SOURCES_FILE), "w") as handle:
         json.dump({key: {"file": name, "style": style, "markdown": body}
                    for key, name, body, style in outputs}, handle, indent=2)
@@ -666,14 +817,20 @@ def generate_application_package(
             "job_description": job_description,
             "research_performed": bool(research),
             "written_as_stretch": bool(stretch),
+            "ats": ats_scores,
+            "generation_usd": spend.dollars(),
         }, handle, indent=2)
 
     return {
         "run_dir": run_dir,
         "files": files,
-        "generation_calls": calls,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "cache_written": cache_written,
-        "cache_read": cache_read,
+        "ats": ats_scores,
+        "generation_calls": spend.calls,
+        "input_tokens": spend.input_tokens,
+        "output_tokens": spend.output_tokens,
+        # If cache_read stays at zero across a run, something is silently
+        # invalidating the prefix and the saving is not happening.
+        "cache_written": spend.cache_written,
+        "cache_read": spend.cache_read,
+        "cost_usd": spend.dollars(),
     }
