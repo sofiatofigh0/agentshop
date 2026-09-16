@@ -27,6 +27,16 @@ Product manager for an evaluation platform.
 State University · 2016 – 2020
 """
 
+LETTER = """# Jane Example
+New York
+
+Dear team,
+
+I owned the roadmap.
+
+Jane
+"""
+
 KEYWORDS = [
     {"term": "product roadmap", "category": "hard_skill", "importance": "required", "aliases": ["roadmap"]},
     {"term": "sql", "category": "tool", "importance": "required", "aliases": []},
@@ -44,7 +54,9 @@ class EditRescores(unittest.TestCase):
                        "ats": {"resume": 50, "cover_letter": 0, "target": 75}}, handle)
         with open(os.path.join(run_dir, server.SOURCES_FILE), "w") as handle:
             json.dump({"resume": {"file": "tailored_resume.pdf", "style": "resume",
-                                  "markdown": RESUME}}, handle)
+                                  "markdown": RESUME},
+                       "cover_letter": {"file": "cover_letter.pdf", "style": "letter",
+                                        "markdown": LETTER}}, handle)
         with open(os.path.join(run_dir, server.ATS_FILE), "w") as handle:
             json.dump({"title": "PM", "keywords": KEYWORDS, "target": 75,
                        "resume": {"score": 50, "matched": [], "missing": []}}, handle)
@@ -66,6 +78,23 @@ class EditRescores(unittest.TestCase):
         rows = self.client.get("/api/history").get_json()
         self.assertEqual(rows[0]["ats"]["resume"], 50)
         self.assertTrue(rows[0]["editable"])
+
+    def _report_text(self):
+        from pypdf import PdfReader
+        path = os.path.join(self.run_dir, "ats_report.pdf")
+        return "\n".join(p.extract_text() or "" for p in PdfReader(path).pages)
+
+    def test_edit_rebuilds_the_report_so_it_cannot_contradict_the_score(self):
+        """The chip and the report the UI links must tell one story."""
+        edited = RESUME.replace("Owned the roadmap",
+                                "Owned the product roadmap and the SQL reporting")
+        response = self.client.put(f"/api/document/{self.folder}/resume",
+                                   json={"markdown": edited, "note": ""})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["ats"], 100)
+        text = self._report_text()
+        self.assertIn("100 / 100", text)
+        self.assertIn("sql", text.lower())
 
     def test_edit_rescored_and_persisted(self):
         edited = RESUME.replace("Owned the roadmap", "Owned the product roadmap and the SQL reporting")
@@ -95,6 +124,28 @@ class EditRescores(unittest.TestCase):
     def test_bad_folder_rejected(self):
         response = self.client.put("/api/document/../etc/resume", json={"markdown": "x"})
         self.assertIn(response.status_code, (400, 404))
+
+    def test_a_saved_edit_is_never_reported_as_a_failed_one(self):
+        """The save happens before the scoring; only the score can be lost."""
+        edited = RESUME.replace("Owned the roadmap", "Owned the product roadmap")
+        with mock.patch.object(server, "_rescore", side_effect=RuntimeError("bad ats.json")):
+            response = self.client.put(f"/api/document/{self.folder}/resume",
+                                       json={"markdown": edited, "note": ""})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.get_json()["ats"])
+        with open(os.path.join(self.run_dir, server.SOURCES_FILE)) as handle:
+            self.assertIn("product roadmap", json.load(handle)["resume"]["markdown"])
+
+    def test_the_cover_letter_is_scored_too(self):
+        """Both documents are re-scored, so neither goes stale behind the other."""
+        response = self.client.put(f"/api/document/{self.folder}/cover_letter",
+                                   json={"markdown": LETTER + "\nI write SQL.\n", "note": ""})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()["ats"], 100)   # roadmap and sql
+        with open(os.path.join(self.run_dir, "run.json")) as handle:
+            meta = json.load(handle)
+        self.assertEqual(meta["ats"]["cover_letter"], 100)
+        self.assertEqual(meta["ats"]["resume"], 50)   # unchanged, and still scored
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ import lessons
 
 from application_generator import (
     ATS_FILE, OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
+    write_ats_report,
 )
 
 app = Flask(__name__, static_folder=None)
@@ -277,8 +278,15 @@ def write_document(folder: str, key: str):
 
     # An edited resume or letter is re-scored against the posting's keywords
     # on the spot — plain Python, no model call — so the score the candidate
-    # sees is the score of the text they just saved.
-    rescored = _rescore(run_dir, key, markdown_text, meta)
+    # sees is the score of the text they just saved, and the ATS report it
+    # links says the same thing. The save has already succeeded by this point,
+    # so a failure here is reported as a missing score rather than as a failed
+    # edit: telling the candidate their edit did not save, when it did, is the
+    # worse error.
+    try:
+        rescored = _rescore(run_dir, key, sources, meta)
+    except Exception:
+        rescored = None
 
     # Learning happens after the save, never before it, and lessons.record()
     # swallows its own failures: an edit that cannot be distilled is still an
@@ -294,9 +302,14 @@ def write_document(folder: str, key: str):
                     "fitted": fitted, "learned": learned, "ats": rescored})
 
 
-def _rescore(run_dir: str, key: str, markdown_text: str, meta: dict):
-    """Re-score one edited document. Returns the new score, or None when the
-    run has no keywords or the document is not one a screener reads."""
+def _rescore(run_dir: str, key: str, sources: dict, meta: dict):
+    """Re-score the edited application and rebuild its ATS report.
+
+    Returns this document's new score, or None when the run has no keywords or
+    the edited document is not one a screener reads. Both documents are scored
+    and the report is written again from the text now on disk, so the score in
+    the history and the report behind it can never disagree.
+    """
     if key not in ("resume", "cover_letter"):
         return None
     path = os.path.join(run_dir, ATS_FILE)
@@ -304,19 +317,20 @@ def _rescore(run_dir: str, key: str, markdown_text: str, meta: dict):
         return None
     with open(path) as handle:
         data = json.load(handle)
-    keywords = data.get("keywords") or []
-    if not keywords:
+    if not (data.get("keywords") or []):
         return None
 
-    scored = ats.score(keywords, markdown_text)
-    data[key] = ats.summary(scored)
-    with open(path, "w") as handle:
-        json.dump(data, handle, indent=2)
+    def markdown(name):
+        return (sources.get(name) or {}).get("markdown", "")
 
-    meta.setdefault("ats", {"target": data.get("target", ats.target_score())})[key] = scored["score"]
+    scores = write_ats_report(run_dir, data, markdown("resume"), markdown("cover_letter"))
+
+    meta.setdefault("ats", {})["target"] = data.get("target", ats.target_score())
+    meta["ats"]["resume"] = scores["resume"]
+    meta["ats"]["cover_letter"] = scores["cover_letter"]
     with open(os.path.join(run_dir, "run.json"), "w") as handle:
         json.dump(meta, handle, indent=2)
-    return scored["score"]
+    return scores[key]
 
 
 @app.get("/api/lessons")

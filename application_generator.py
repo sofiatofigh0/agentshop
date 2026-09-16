@@ -44,6 +44,7 @@ from documents import fit_pdf, page_count, write_pdf
 
 import ats
 import lessons
+import models
 
 from candidate_profile import CANDIDATE_PROFILE
 from experience_bank import EXPERIENCE_BANK, missing_fields
@@ -61,6 +62,7 @@ SOURCES_FILE = "sources.json"
 # The posting's keywords and each document's score, kept beside the PDFs so an
 # edit can be re-scored without another model call.
 ATS_FILE = "ats.json"
+ATS_REPORT = "ats_report.pdf"
 
 
 def _generation_facts() -> str:
@@ -219,6 +221,13 @@ def _call(step: str, instructions: str, user: str, context: str = "",
     names the effort the call runs at; `context` is the per-run block, left out
     of the calls that must not be looking at the posting (the factuality
     review judges the draft against the bank and nothing else).
+
+    Every call here sends the same two cached system blocks, so the top-level
+    effort has to stay identical between them — a change there would rewrite
+    the prefix rather than read it. A step that wants less depth says so in a
+    `messages` entry instead, which the system cache survives. An account
+    without that beta gets one rejected call, after which the stage runs at
+    the default depth for the rest of the process.
     """
     system = [{"type": "text", "text": STABLE_PREFIX,
                "cache_control": cache_control(long_lived=True)}]
@@ -226,14 +235,27 @@ def _call(step: str, instructions: str, user: str, context: str = "",
         system.append({"type": "text", "text": context, "cache_control": cache_control()})
     system.append({"type": "text", "text": instructions})
 
+    model = main_model()
     client = anthropic.Anthropic()
-    response = client.messages.create(
-        model=main_model(),
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-        **request_options(step),
-    )
+    kwargs = dict(model=model, max_tokens=max_tokens, system=system,
+                  **request_options(step, model))
+    turn = {"role": "user", "content": user}
+
+    depth = models.effort_message(step, model)
+    response = None
+    if depth is not None:
+        try:
+            response = client.beta.messages.create(
+                betas=[models.PER_MESSAGE_EFFORT_BETA],
+                messages=[depth, turn], **kwargs,
+            )
+        except anthropic.BadRequestError:
+            # The beta is not available here. Stop trying, and run this step
+            # at the default depth like the rest of the stage.
+            models.disable_per_message_effort()
+    if response is None:
+        response = client.messages.create(messages=[turn], **kwargs)
+
     text = "\n".join(b.text for b in response.content if b.type == "text").strip()
     if not text:
         # Malformed / empty response — fail loudly rather than write an empty file.
@@ -603,6 +625,55 @@ def render_document(markdown_text: str, path: str, style: str) -> tuple:
     return page_count(path), None
 
 
+def write_ats_report(run_dir: str, data: dict, resume_md: str, letter_md: str) -> dict:
+    """Score both documents, write ats_report.pdf and ats.json, return the scores.
+
+    Every input is already on disk and nothing here calls a model, so this runs
+    again after an edit — which is the only way the score the UI shows and the
+    report it links can stay the same story. `data` is the ats.json payload:
+    the posting's title, its keywords, the target, and what the rephrasing pass
+    did, all of which belong to the run rather than to one document.
+    """
+    keywords = data.get("keywords") or []
+    scores = {"resume": None, "cover_letter": None, "target": data.get("target")}
+
+    if keywords:
+        resume_scored = ats.score(keywords, resume_md)
+        letter_scored = ats.score(keywords, letter_md) if letter_md else None
+        candidates, real_gaps = ats.bank_supported(resume_scored["missing"], BANK_PROSE)
+        report = ats.report(
+            data, resume_scored, letter_scored, data.get("target"),
+            candidates, real_gaps, ats.format_checks(resume_md),
+            ats.title_match(data.get("title", ""), resume_md),
+            ats.pdf_text_check(os.path.join(run_dir, "tailored_resume.pdf"),
+                               resume_scored["matched"]),
+            data.get("rephrasing_pass"),
+        )
+        scores["resume"] = resume_scored["score"]
+        scores["cover_letter"] = letter_scored["score"] if letter_scored else None
+        data = dict(data, resume=ats.summary(resume_scored),
+                    cover_letter=ats.summary(letter_scored) if letter_scored else None)
+    else:
+        report = ats.report(data, None, None, data.get("target"), [], [], [], {}, {})
+        data = dict(data, resume=None, cover_letter=None)
+
+    write_pdf(report, os.path.join(run_dir, ATS_REPORT), "report")
+    _write_json(os.path.join(run_dir, ATS_FILE), data)
+    return scores
+
+
+def _write_json(path: str, payload) -> None:
+    """Write one JSON file so a failure cannot leave it half-written.
+
+    ats.json is read back on every later edit, so a truncated write would not
+    fail once — it would fail every edit of that application afterwards.
+    """
+    draft = path + ".writing"
+    with open(draft, "w") as handle:
+        json.dump(payload, handle, indent=2)
+    os.replace(draft, path)
+
+
 def generate_application_package(
     job_description: str, recommendation: str, reasoning: str, research: str = "",
     company: str = "", role: str = "", progress=print,
@@ -699,14 +770,17 @@ def generate_application_package(
             scored = ats.score(keywords, draft)
             candidates, _ = ats.bank_supported(scored["missing"], BANK_PROSE)
             if scored["score"] < target and candidates:
-                considered = min(len(candidates), ats.MAX_REPHRASE_TERMS)
+                offered = candidates[:ats.MAX_REPHRASE_TERMS]
                 progress(f"ATS: draft resume scores {scored['score']}/100 — rewording for "
-                         f"{considered} term(s) the bank mentions...")
+                         f"{len(offered)} term(s) the bank mentions...")
                 reworded = run(rephrase_resume(context, draft, candidates))
                 rescored = ats.score(keywords, reworded)
                 kept = rescored["score"] > scored["score"]
-                pass_info = {"considered": considered, "before": scored["score"],
-                             "after": rescored["score"], "kept": kept}
+                # Which terms were put to it, not just how many: the report
+                # says something different about a term the pass never saw.
+                pass_info = {"considered": len(offered), "before": scored["score"],
+                             "after": rescored["score"], "kept": kept,
+                             "terms": [k["term"] for k in offered]}
                 if kept:
                     draft = reworded
                 progress(f"ATS: resume now {rescored['score'] if kept else scored['score']}/100")
@@ -764,62 +838,40 @@ def generate_application_package(
         files[key] = path
 
     # The ATS report: scores on the final text, the checks a parser cares
-    # about, and whether the finished PDF still reads. Plain Python, no model.
-    ats_scores = {"resume": None, "cover_letter": None, "target": target}
-    if keywords:
-        resume_scored = ats.score(keywords, resume)
-        letter_scored = ats.score(keywords, cover_letter)
-        candidates, real_gaps = ats.bank_supported(resume_scored["missing"], BANK_PROSE)
-        report = ats.report(
-            extracted, resume_scored, letter_scored, target, candidates, real_gaps,
-            ats.format_checks(resume), ats.title_match(extracted["title"], resume),
-            ats.pdf_text_check(files["resume"], resume_scored["matched"]), pass_info,
-        )
-        ats_scores.update({"resume": resume_scored["score"],
-                           "cover_letter": letter_scored["score"]})
-        progress(f"ATS: resume {resume_scored['score']}/100, "
-                 f"cover letter {letter_scored['score']}/100 (target {target})")
-    else:
-        resume_scored = letter_scored = None
-        report = ats.report(extracted, None, None, target, [], [], [], {}, {})
-    path = os.path.join(run_dir, "ats_report.pdf")
-    write_pdf(report, path, "report")
-    files["ats_report"] = path
-
-    with open(os.path.join(run_dir, ATS_FILE), "w") as handle:
-        json.dump({
-            "title": extracted["title"],
-            "keywords": keywords,
-            "target": target,
-            "resume": ats.summary(resume_scored) if resume_scored else None,
-            "cover_letter": ats.summary(letter_scored) if letter_scored else None,
-            "rephrasing_pass": pass_info,
-        }, handle, indent=2)
+    # about, and whether the finished PDF still reads. Plain Python, no model,
+    # which is what lets an edit rebuild the whole thing later.
+    ats_scores = write_ats_report(run_dir, {
+        "title": extracted["title"], "keywords": keywords, "target": target,
+        "rephrasing_pass": pass_info,
+    }, resume, cover_letter)
+    files["ats_report"] = os.path.join(run_dir, ATS_REPORT)
+    if ats_scores["resume"] is not None:
+        progress(f"ATS: resume {ats_scores['resume']}/100, "
+                 f"cover letter {ats_scores['cover_letter']}/100 (target {target})")
 
     # The markdown behind each PDF, so it can be edited and re-rendered later.
     # `file` and `style` live here too: an edit then names a document by key and
     # the server looks up where it goes, rather than taking a path from a caller.
     # The ATS report is not here: it is derived, and re-derived on every edit.
-    with open(os.path.join(run_dir, SOURCES_FILE), "w") as handle:
-        json.dump({key: {"file": name, "style": style, "markdown": body}
-                   for key, name, body, style in outputs}, handle, indent=2)
+    _write_json(os.path.join(run_dir, SOURCES_FILE),
+                {key: {"file": name, "style": style, "markdown": body}
+                 for key, name, body, style in outputs})
 
     # A record of what this application was, so months later the folder is not
     # a mystery. This is the thing that was missing when five identically named
     # PDFs sat in one directory.
-    with open(os.path.join(run_dir, "run.json"), "w") as handle:
-        json.dump({
-            "company": company,
-            "role": role,
-            "recommendation": recommendation,
-            "reasoning": reasoning,
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "job_description": job_description,
-            "research_performed": bool(research),
-            "written_as_stretch": bool(stretch),
-            "ats": ats_scores,
-            "generation_usd": spend.dollars(),
-        }, handle, indent=2)
+    _write_json(os.path.join(run_dir, "run.json"), {
+        "company": company,
+        "role": role,
+        "recommendation": recommendation,
+        "reasoning": reasoning,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "job_description": job_description,
+        "research_performed": bool(research),
+        "written_as_stretch": bool(stretch),
+        "ats": ats_scores,
+        "generation_usd": spend.dollars(),
+    })
 
     return {
         "run_dir": run_dir,

@@ -92,8 +92,59 @@ class Matching(unittest.TestCase):
         self.assertEqual(self.count("c++", "wrote C++ and C"), 1)
         self.assertEqual(self.count("c++", "wrote C and Go"), 0)
 
+    def test_short_terms_do_not_swallow_longer_words(self):
+        """A posting asking for Go must not match a resume that says "goes"."""
+        for term, text in [("go", "when the feature goes live"),
+                           ("us", "the team uses Jira"),
+                           ("hr", "10 hrs per month"),
+                           ("do", "what the model does")]:
+            self.assertEqual(self.count(term, text), 0, (term, text))
+        self.assertEqual(self.count("go", "shipped in Go and Python"), 1)
+
+    def test_plus_and_hash_are_part_of_the_word(self):
+        """Otherwise the term "c" matches C++, C# and CS."""
+        for text in ("wrote C++ and Java", "fluent in C#", "a BS in CS"):
+            self.assertEqual(self.count("c", text), 0, text)
+        self.assertEqual(self.count("c", "wrote C and assembly"), 1)
+
+    def test_plural_only_on_the_last_word(self):
+        self.assertEqual(self.count("product roadmap", "owned product roadmaps"), 1)
+        self.assertEqual(self.count("product roadmap", "products roadmap"), 0)
+
+    def test_irregular_plurals(self):
+        for term, text in [("strategy", "owned pricing strategies"),
+                           ("analysis", "ran cohort analyses"),
+                           ("priority", "set priorities"),
+                           ("company", "three companies"),
+                           ("process", "mapped the processes")]:
+            self.assertEqual(self.count(term, text), 1, (term, text))
+
+    def test_possessives(self):
+        self.assertEqual(self.count("bachelor's degree", "Bachelors degree in CS"), 1)
+        self.assertEqual(self.count("bachelors degree", "a Bachelor's degree"), 1)
+
+    def test_arrow_spellings_are_one_term(self):
+        """0->1, 0→1 and 0-to-1 are the same claim written three ways."""
+        for text in ("0->1 product ownership", "0\u21921 ownership", "0-to-1 work"):
+            self.assertEqual(self.count("0-to-1", text), 1, text)
+        self.assertEqual(self.count("0->1", "took it 0-to-1"), 1)
+
+    def test_overlapping_aliases_count_once(self):
+        """"product roadmap" with alias "roadmap" must not count twice."""
+        text = "Owned the product roadmap. The roadmap shipped."
+        self.assertEqual(self.count("product roadmap", text, aliases=["roadmap"]), 2)
+
 
 class Scoring(unittest.TestCase):
+    def test_an_alias_that_is_another_keyword_is_dropped(self):
+        parsed = ats.parse_keywords(
+            '{"keywords": ['
+            '{"term": "product roadmap", "aliases": ["roadmap"]},'
+            '{"term": "roadmap"}]}')
+        self.assertEqual(parsed["keywords"][0]["aliases"], [])
+        scored = ats.score(parsed["keywords"], "I owned the roadmap.")
+        self.assertEqual(scored["score"], 50)   # one of the two terms, not both
+
     def test_weighted_coverage(self):
         scored = ats.score(KEYWORDS, RESUME)
         matched = {m["term"] for m in scored["matched"]}
@@ -120,6 +171,13 @@ class Scoring(unittest.TestCase):
         text = "sql " * (ats.STUFFING_LIMIT + 1)
         scored = ats.score([kw("sql", "tool")], text)
         self.assertEqual([m["term"] for m in scored["stuffed"]], ["sql"])
+
+    def test_overlapping_aliases_do_not_fake_a_stuffing_flag(self):
+        """Three mentions counted twice each would read as repetition."""
+        scored = ats.score(KEYWORDS, RESUME)
+        roadmap = [m for m in scored["matched"] if m["term"] == "product roadmap"][0]
+        self.assertEqual(roadmap["count"], 3)
+        self.assertEqual(scored["stuffed"], [])
 
     def test_summary_shape(self):
         summary = ats.summary(ats.score(KEYWORDS, RESUME))
@@ -154,10 +212,17 @@ class BankGate(unittest.TestCase):
     BANK = {
         "roles": [{"company": "Acme", "projects": [
             {"name": "Evals", "summary": "Built the LLM evaluation rubric",
-             "metrics": [{"claim": "SQL reporting cut turnaround", "source": "verified_resume"},
-                         {"claim": "Kubernetes migration finished", "source": "needs_validation"}]},
+             "label_rule": "Never describe this as production scale",
+             "use_when": "cross-cultural communication matters",
+             "metrics": [{"claim": "SQL reporting cut turnaround",
+                          "source": "verified_resume", "type": "verified_metric",
+                          "caveat": "Do not present it as a measured outcome"},
+                         {"claim": "Kubernetes migration finished",
+                          "source": "needs_validation"}]},
         ]}],
         "skills": {"tools": ["SQL"]},
+        "identity": {"experience_length": "Never write '6 years of PM experience'",
+                     "email": "someone@example.com"},
     }
 
     def test_prose_skips_unvalidated_and_keys(self):
@@ -166,6 +231,31 @@ class BankGate(unittest.TestCase):
         self.assertIn("sql reporting", prose)
         self.assertNotIn("kubernetes", prose)
         self.assertNotIn("metrics", prose)   # keys are vocabulary, not evidence
+
+    def test_provenance_labels_are_not_evidence(self):
+        """"supported_inference" must not make "inference" a supported term."""
+        prose = ats.bank_prose(self.BANK)
+        for label in ("verified", "inference", "verified metric"):
+            self.assertEqual(ats._count(kw(label), prose), 0, label)
+
+    def test_the_bank_s_own_prohibitions_are_not_evidence(self):
+        """The rule forbidding a claim must never be read as making it."""
+        prose = ats.bank_prose(self.BANK)
+        for forbidden in ("production", "6 years", "measured outcome"):
+            self.assertEqual(ats._count(kw(forbidden), prose), 0, forbidden)
+
+    def test_guidance_about_when_to_use_a_claim_is_not_evidence(self):
+        prose = ats.bank_prose(self.BANK)
+        self.assertEqual(ats._count(kw("cross-cultural communication"), prose), 0)
+
+    def test_contact_details_stay_out(self):
+        self.assertNotIn("example.com", ats.bank_prose(self.BANK))
+
+    def test_the_real_bank_does_not_leak_labels(self):
+        import application_generator as gen
+        for leak in ("inference", "verified", "6 years", "production"):
+            self.assertEqual(ats._count(kw(leak), gen.BANK_PROSE), 0, leak)
+        self.assertGreater(len(gen.BANK_PROSE), 5000)   # still full of real evidence
 
     def test_split(self):
         missing = ats.score(KEYWORDS, "")["missing"]
@@ -210,6 +300,16 @@ class Checks(unittest.TestCase):
         self.assertTrue(checks["Bullets with a number in them"]["ok"])
         self.assertFalse(checks["Length for a one-page parse"]["ok"])  # this fixture is short
 
+    def test_contact_check_does_not_count_the_profile_paragraph(self):
+        """It can only pass on prose between the name and the first section."""
+        no_contact = ("# Jane\n**Senior PM**\n\n## Profile\nA paragraph of prose.\n\n"
+                      "## Skills\n- x\n\n## Experience\n### R — C | 2020\n- b\n\n"
+                      "## Education\n**BS**\nU\n")
+        checks = {c["check"]: c for c in ats.format_checks(no_contact)}
+        self.assertFalse(checks["Contact line under the name"]["ok"])
+        self.assertTrue({c["check"]: c for c in ats.format_checks(RESUME)}
+                        ["Contact line under the name"]["ok"])
+
     def test_format_checks_catch_missing_dates_and_sections(self):
         text = "# A\n**T**\ncontact\n\n## Experience\n### Role — Co\n- did x\n"
         checks = {c["check"]: c for c in ats.format_checks(text)}
@@ -253,6 +353,42 @@ class Report(unittest.TestCase):
         self.assertIn("Not in the experience bank", text)
         self.assertIn("40 → 62", text)
         self.assertIn("| Hard skills |", text)
+
+    def test_report_does_not_claim_a_pass_that_never_ran(self):
+        resume = ats.score(KEYWORDS, RESUME)
+        text = ats.report({"title": "", "keywords": KEYWORDS}, resume, None, 75,
+                          resume["missing"], [], [], ats.title_match("", RESUME),
+                          {"ok": True, "lost": [], "detail": ""}, None)
+        self.assertIn("No rephrasing pass ran", text)
+        self.assertNotIn("could not work them in", text)
+
+    def test_report_separates_offered_terms_from_unoffered_ones(self):
+        resume = ats.score(KEYWORDS, "nothing here")
+        candidates = resume["missing"]
+        pass_info = {"considered": 1, "before": 0, "after": 0, "kept": True,
+                     "terms": [candidates[0]["term"]]}
+        text = ats.report({"title": "", "keywords": KEYWORDS}, resume, None, 75,
+                          candidates, [], [], ats.title_match("", RESUME),
+                          {"ok": True, "lost": [], "detail": ""}, pass_info)
+        self.assertIn("could not work them in", text)
+        self.assertIn("never offered to it", text)
+        self.assertIn(candidates[1]["term"], text)
+
+    def test_report_does_not_blame_a_discarded_pass_on_the_terms(self):
+        resume = ats.score(KEYWORDS, "nothing here")
+        pass_info = {"considered": 2, "before": 10, "after": 10, "kept": False,
+                     "terms": [k["term"] for k in resume["missing"][:2]]}
+        text = ats.report({"title": "", "keywords": KEYWORDS}, resume, None, 75,
+                          resume["missing"][:2], [], [], ats.title_match("", RESUME),
+                          {"ok": True, "lost": [], "detail": ""}, pass_info)
+        self.assertIn("not known not to fit", text)
+
+    def test_report_says_nothing_when_there_are_no_candidates(self):
+        resume = ats.score(KEYWORDS, RESUME)
+        text = ats.report({"title": "", "keywords": KEYWORDS}, resume, None, 75,
+                          [], resume["missing"], [], ats.title_match("", RESUME),
+                          {"ok": True, "lost": [], "detail": ""}, None)
+        self.assertNotIn("No rephrasing pass ran", text)
 
     def test_report_without_keywords(self):
         text = ats.report({"title": "", "keywords": []}, None, None, 75, [], [], [], {}, {})

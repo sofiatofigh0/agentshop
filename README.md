@@ -197,11 +197,40 @@ in the order they were applied:
 
 | Lever | What changed | Costs quality? |
 |---|---|---|
-| Per-step effort | Verdict, evidence map and factuality review keep the default depth. Resume, letter, strategy and the rephrasing pass run at `medium`; revision, search summaries, keyword extraction and lesson distillation at `low`. See `EFFORT` in `models.py`. | Not measurably for writing and extraction steps; the reasoning steps are untouched |
+| Per-step effort | Verdict, evidence map and factuality review keep the default depth. Resume, letter, strategy and the rephrasing pass run at `medium`; revision, search summaries, keyword extraction and lesson distillation at `low`. See `EFFORT` in `models.py`, and "Effort against caching" below for how that is delivered. | Not measurably for writing and extraction steps; the reasoning steps are untouched |
 | Search sub-calls | Two searches per query instead of three, a 200-word summary shape, `low` effort, and a 1,500-token cap. Their usage is now counted in the trace. | No — the agent reads a summary either way |
 | Run context cached | The posting and research sit in the system prompt behind a second cache marker, written once by the evidence-map call and read back by every later call, instead of travelling in the user turn at full price six times. | No |
 | Loop caching | The agent loop moves a cache marker to the newest user turn, so each turn reads the history it already sent. | No |
 | Priced trace | `models.py` carries the price table; the trace and the UI show dollars per run instead of "roughly $1". | No |
+
+### Effort against caching
+
+These two levers pull against each other, and the conflict is not obvious.
+
+A top-level effort value is rendered into the prompt itself, so changing it
+between calls starts a new cache prefix — and on models that render it ahead of
+the system prompt, it invalidates the system cache too. The six generation
+calls share a cached prefix of roughly fourteen thousand tokens, most of it the
+experience bank. Giving each of them its own effort would make five of them
+rewrite that prefix instead of reading it, which costs several times what the
+effort saves. With a one-hour cache it would cost more than not caching at all.
+
+So the generation calls pin their top-level effort, and a step that wants less
+depth asks for it in a `messages` entry instead — a `role: "system"` message
+with empty content and its own `output_config`. Message content never
+invalidates the system cache, so the prefix survives and each step still gets
+its own depth. That mechanism is in beta and only on some models; where it is
+unavailable the whole stage simply runs at the default depth, because the cache
+is worth more than the difference. If the API rejects the beta, the first call
+falls back and the rest of the process stops asking.
+
+The steps whose calls share no cached prefix — the search summary, keyword
+extraction, lesson distillation — set effort the ordinary way, because there is
+nothing for them to invalidate.
+
+`tests/test_models.py` asserts that every generation step sends an identical
+top-level effort. That test is the regression guard: the first version of this
+change did vary it, and would have quietly spent more than it saved.
 
 Three optional settings in `.env` go further:
 
@@ -214,7 +243,9 @@ Three optional settings in `.env` go further:
   every further run in the hour reads it at a tenth of the price. Worth it
   when several postings are run in one sitting.
 - `ANTHROPIC_EFFORT` — forces one effort on every step, for comparing settings
-  with `evals.py` one change at a time.
+  with `evals.py` one change at a time. One level everywhere is constant, so it
+  is still cache-safe. A level the chosen model does not accept is clamped down
+  to the nearest one it does, rather than failing every call in the run.
 
 Estimated from the code rather than measured — nothing in this repo spends
 money on a benchmark — the changes take a no-search run on Opus 5 from roughly
