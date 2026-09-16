@@ -13,6 +13,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import anthropic
+
 import application_generator as gen
 import ats
 
@@ -144,7 +146,8 @@ class Pipeline(unittest.TestCase):
         with open(os.path.join(run_dir, gen.ATS_FILE)) as handle:
             data = json.load(handle)
         self.assertEqual(data["rephrasing_pass"],
-                         {"considered": 2, "before": 25, "after": 75, "kept": True})
+                         {"considered": 2, "before": 25, "after": 75, "kept": True,
+                          "terms": ["llm evaluation", "sql"]})
         self.assertEqual(data["resume"]["score"], 75)
         self.assertEqual(len(data["keywords"]), 5)
         with open(os.path.join(run_dir, "run.json")) as handle:
@@ -220,52 +223,98 @@ class Pipeline(unittest.TestCase):
         self.assertNotIn("STRETCH APPLICATION", fake.inputs["evidence_map"][2])
 
 
+class Recorder:
+    """A fake Anthropic client that records both transport paths."""
+
+    def __init__(self, fail_beta=False):
+        self.calls = []
+        self.fail_beta = fail_beta
+        outer = self
+
+        def make(beta):
+            def create(**kwargs):
+                outer.calls.append({"beta": beta, **kwargs})
+                if beta and outer.fail_beta:
+                    raise anthropic.BadRequestError(
+                        "unknown beta", response=SimpleNamespace(status_code=400,
+                                                                 headers={}, request=None),
+                        body=None)
+                return SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")],
+                                       usage=fake_usage(), stop_reason="end_turn")
+            return SimpleNamespace(create=create)
+
+        self.messages = make(False)
+        self.beta = SimpleNamespace(messages=make(True))
+
+
 class CallShape(unittest.TestCase):
     """_call builds the system prompt in cache order: stable, run, step."""
 
+    def setUp(self):
+        gen.models._per_message_effort_ok = True
+        self.addCleanup(setattr, gen.models, "_per_message_effort_ok", True)
+        os.environ.pop("ANTHROPIC_EFFORT", None)
+        os.environ.pop("PROMPT_CACHE_TTL", None)
+
+    def call(self, step, model="claude-opus-5", context="RUN CONTEXT", fail_beta=False):
+        client = Recorder(fail_beta=fail_beta)
+        with mock.patch.object(gen.anthropic, "Anthropic", lambda: client), \
+             mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": model}):
+            text, usage = gen._call(step, "STEP", "USER", context)
+        return client, text
+
     def test_system_blocks(self):
-        captured = {}
-
-        class Client:
-            class messages:
-                @staticmethod
-                def create(**kwargs):
-                    captured.update(kwargs)
-                    return SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")],
-                                           usage=fake_usage(), stop_reason="end_turn")
-
-        with mock.patch.object(gen.anthropic, "Anthropic", lambda: Client()), \
-             mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5"}):
-            os.environ.pop("PROMPT_CACHE_TTL", None)
-            os.environ.pop("ANTHROPIC_EFFORT", None)
-            text, usage = gen._call("resume", "STEP", "USER", "RUN CONTEXT")
-
+        client, text = self.call("resume")
         self.assertEqual(text, "ok")
-        system = captured["system"]
+        system = client.calls[-1]["system"]
         self.assertEqual([b["text"][:12] for b in system],
                          [gen.STABLE_PREFIX[:12], "RUN CONTEXT", "STEP"])
         self.assertIn("cache_control", system[0])
         self.assertIn("cache_control", system[1])
         self.assertNotIn("cache_control", system[2])
-        self.assertEqual(captured["output_config"], {"effort": "medium"})
-        self.assertEqual(captured["messages"], [{"role": "user", "content": "USER"}])
 
     def test_no_context_means_two_blocks(self):
-        captured = {}
+        client, _ = self.call("factuality", model="claude-haiku-4-5", context="")
+        self.assertEqual(len(client.calls[-1]["system"]), 2)
+        self.assertNotIn("output_config", client.calls[-1])
 
-        class Client:
-            class messages:
-                @staticmethod
-                def create(**kwargs):
-                    captured.update(kwargs)
-                    return SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")],
-                                           usage=fake_usage(), stop_reason="end_turn")
+    def test_depth_rides_in_messages_never_at_the_top_level(self):
+        """The cached prefix must not see a different effort per step."""
+        client, _ = self.call("resume")
+        call = client.calls[-1]
+        self.assertTrue(call["beta"])
+        self.assertNotIn("output_config", call)
+        self.assertEqual(call["messages"][0],
+                         {"role": "system", "content": [],
+                          "output_config": {"effort": "medium"}})
+        self.assertEqual(call["messages"][1], {"role": "user", "content": "USER"})
+        self.assertEqual(call["betas"], [gen.models.PER_MESSAGE_EFFORT_BETA])
 
-        with mock.patch.object(gen.anthropic, "Anthropic", lambda: Client()), \
-             mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-haiku-4-5"}):
-            gen._call("factuality", "STEP", "USER")
-        self.assertEqual(len(captured["system"]), 2)
-        self.assertNotIn("output_config", captured)
+    def test_default_depth_takes_the_plain_path(self):
+        client, _ = self.call("factuality")
+        self.assertEqual([c["beta"] for c in client.calls], [False])
+        self.assertEqual(client.calls[0]["messages"],
+                         [{"role": "user", "content": "USER"}])
+
+    def test_a_rejected_beta_falls_back_and_is_not_retried(self):
+        client = Recorder(fail_beta=True)
+        with mock.patch.object(gen.anthropic, "Anthropic", lambda: client), \
+             mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5"}):
+            gen._call("resume", "STEP", "USER", "CTX")
+            gen._call("cover_letter", "STEP", "USER", "CTX")
+        # first step tries the beta, falls back; the second never tries again
+        self.assertEqual([c["beta"] for c in client.calls], [True, False, False])
+        self.assertFalse(gen.models._per_message_effort_ok)
+
+    def test_a_sweep_pins_effort_at_the_top_level_for_every_step(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_EFFORT": "low"}):
+            sent = []
+            for step in ("evidence_map", "resume", "factuality"):
+                client, _ = self.call(step)
+                call = client.calls[-1]
+                self.assertFalse(call["beta"])
+                sent.append(call["output_config"])
+        self.assertEqual(sent, [{"effort": "low"}] * 3)
 
 
 if __name__ == "__main__":

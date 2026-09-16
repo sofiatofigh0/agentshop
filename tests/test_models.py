@@ -1,5 +1,6 @@
 """Model selection, effort gating, cache lifetime and the price table."""
 
+import json
 import os
 import unittest
 from types import SimpleNamespace
@@ -19,26 +20,123 @@ class Effort(unittest.TestCase):
         for model in no:
             self.assertFalse(models.supports_effort(model), model)
 
-    def test_request_options_per_step(self):
+    def test_side_job_steps_set_effort_at_the_top_level(self):
+        """Their calls share no cached prefix, so varying effort costs nothing."""
         with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5"}, clear=False):
             os.environ.pop("ANTHROPIC_EFFORT", None)
-            self.assertEqual(models.request_options("resume"),
-                             {"output_config": {"effort": "medium"}})
-            self.assertEqual(models.request_options("factuality"),
-                             {"output_config": {"effort": "high"}})
+            self.assertEqual(models.request_options("search"),
+                             {"output_config": {"effort": "low"}})
+            self.assertEqual(models.request_options("keywords"),
+                             {"output_config": {"effort": "low"}})
+            self.assertEqual(models.request_options("distill"),
+                             {"output_config": {"effort": "low"}})
             self.assertEqual(models.request_options("search", "claude-haiku-4-5"), {})
 
-    def test_forced_effort(self):
+    def test_generation_steps_never_vary_top_level_effort(self):
+        """The regression guard for the bug this contract exists to prevent.
+
+        These calls share one cached ~14k-token prefix. A top-level effort that
+        differs between them rewrites that prefix instead of reading it, which
+        costs far more than the effort saves.
+        """
+        with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5"}, clear=False):
+            os.environ.pop("ANTHROPIC_EFFORT", None)
+            sent = {json.dumps(models.request_options(step), sort_keys=True)
+                    for step in models.GENERATION_STEPS}
+            self.assertEqual(sent, {"{}"})
+
+    def test_a_sweep_pins_every_step_from_the_top_level(self):
+        """One level everywhere is constant, so it is still cache-safe."""
         with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5",
                                           "ANTHROPIC_EFFORT": "LOW"}):
             self.assertEqual(models.effort_for("factuality"), "low")
+            sent = {json.dumps(models.request_options(step), sort_keys=True)
+                    for step in list(models.GENERATION_STEPS) + ["search", "verdict"]}
+            self.assertEqual(sent, {'{"output_config": {"effort": "low"}}'})
+            self.assertIsNone(models.effort_message("resume"))
+
+    def test_unknown_forced_level_falls_back(self):
         with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5",
                                           "ANTHROPIC_EFFORT": "bogus"}):
+            self.assertEqual(models.forced_effort(), "")
             self.assertEqual(models.effort_for("factuality"), "high")
 
     def test_every_step_has_a_level(self):
         for step, level in models.EFFORT.items():
             self.assertIn(level, models._LEVELS, step)
+
+    def test_generation_steps_match_the_pipeline(self):
+        import application_generator as gen
+        self.assertTrue(models.GENERATION_STEPS <= set(models.EFFORT))
+        self.assertEqual(models.GENERATION_STEPS,
+                         set(models.EFFORT) - {"verdict", "search", "keywords", "distill"})
+        self.assertIn("phrasing", models.GENERATION_STEPS)
+        self.assertTrue(callable(gen._call))
+
+
+class LevelClamping(unittest.TestCase):
+    """A level the model rejects is a 400 on every call, not a degraded one."""
+
+    def test_accepted_levels_per_family(self):
+        self.assertEqual(models.accepted_levels("claude-opus-4-5"),
+                         ("low", "medium", "high"))
+        self.assertEqual(models.accepted_levels("claude-opus-4-6"),
+                         ("low", "medium", "high", "max"))
+        self.assertEqual(models.accepted_levels("claude-sonnet-4-6"),
+                         ("low", "medium", "high", "max"))
+        self.assertEqual(models.accepted_levels("claude-opus-5"), models._LEVELS)
+
+    def test_xhigh_clamps_where_unsupported(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_EFFORT": "xhigh"}):
+            self.assertEqual(models.effort_for("verdict", "claude-opus-4-5"), "high")
+            self.assertEqual(models.effort_for("verdict", "claude-sonnet-4-6"), "high")
+            self.assertEqual(models.effort_for("verdict", "claude-opus-5"), "xhigh")
+
+    def test_max_is_accepted_on_4_6_but_not_4_5(self):
+        """Not a ceiling: 4.6 takes max while rejecting the lower-ranked xhigh."""
+        with mock.patch.dict(os.environ, {"ANTHROPIC_EFFORT": "max"}):
+            self.assertEqual(models.effort_for("verdict", "claude-sonnet-4-6"), "max")
+            self.assertEqual(models.effort_for("verdict", "claude-opus-4-5"), "high")
+
+    def test_clamping_uses_the_call_s_own_model(self):
+        """The side jobs run on the worker model, which may be another family."""
+        with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5",
+                                          "ANTHROPIC_EFFORT": "xhigh"}):
+            self.assertEqual(models.request_options("search", "claude-opus-4-5"),
+                             {"output_config": {"effort": "high"}})
+            self.assertEqual(models.request_options("verdict"),
+                             {"output_config": {"effort": "xhigh"}})
+
+
+class PerMessageEffort(unittest.TestCase):
+    """Depth for the cached calls rides in messages, where the cache survives."""
+
+    def setUp(self):
+        models._per_message_effort_ok = True
+        self.addCleanup(setattr, models, "_per_message_effort_ok", True)
+        os.environ.pop("ANTHROPIC_EFFORT", None)
+
+    def test_shape(self):
+        message = models.effort_message("resume", "claude-opus-5")
+        self.assertEqual(message, {"role": "system", "content": [],
+                                   "output_config": {"effort": "medium"}})
+
+    def test_default_depth_needs_no_message(self):
+        """Sending the default is the same as omitting it."""
+        self.assertIsNone(models.effort_message("factuality", "claude-opus-5"))
+        self.assertEqual(models.EFFORT["factuality"], models.DEFAULT_EFFORT)
+
+    def test_unsupported_models_get_nothing(self):
+        for model in ("claude-opus-4-8", "claude-sonnet-5", "claude-fable-5",
+                      "claude-haiku-4-5"):
+            self.assertIsNone(models.effort_message("resume", model), model)
+        for model in ("claude-opus-5", "claude-fable-5-1", "claude-mythos-5-1"):
+            self.assertIsNotNone(models.effort_message("resume", model), model)
+
+    def test_one_rejection_stops_it_for_the_process(self):
+        self.assertIsNotNone(models.effort_message("resume", "claude-opus-5"))
+        models.disable_per_message_effort()
+        self.assertIsNone(models.effort_message("resume", "claude-opus-5"))
 
     def test_worker_model_falls_back(self):
         with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5"}):

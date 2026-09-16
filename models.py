@@ -9,10 +9,30 @@ Every model call in this project goes through one of three knobs defined here:
                       an edit into a lesson. Defaults to the main model; set
                       ANTHROPIC_WORKER_MODEL to a cheaper one to cut those
                       calls' cost without touching the documents themselves.
-    request_options() the per-step effort. The writing steps do not need the
-                      same depth of reasoning as the verdict or the factuality
-                      review, and on current models effort is where most of a
-                      call's cost goes.
+    request_options() the per-step effort, as top-level request arguments.
+    effort_message()  the per-step effort for the calls that share a cached
+                      prefix, carried inside `messages` instead.
+
+The split between those last two is the whole subtlety of this file, and it
+exists because the two cheapest levers in this project pull against each other.
+
+Effort is where most of a call's cost goes, and the writing steps do not need
+the same depth of reasoning as the verdict or the factuality review. But a
+top-level effort value is rendered into the prompt itself, so changing it
+between calls starts a new cache prefix — on models that render it ahead of
+the system prompt it invalidates the system cache too. The six generation
+calls share a ~14k-token cached prefix holding the whole experience bank. Vary
+their effort and each one rewrites that prefix instead of reading it, which
+costs far more than the effort ever saved.
+
+So: for those calls the top-level effort is pinned (left at the model's
+default, which is the same thing as omitting it), and per-step depth rides in
+a `role: "system"` message with empty content and its own output_config —
+message content never invalidates the system cache, so the prefix survives.
+That mechanism is beta and model-gated; where it is unavailable the generation
+calls simply all run at the default depth, because the cache is worth more
+than the difference. Steps whose calls share no cached prefix — the search
+summary, keyword extraction, lesson distillation — set effort the plain way.
 
 Plus a price table, so the trace and the UI can say what a run actually cost
 instead of "roughly $1".
@@ -47,9 +67,28 @@ _EFFORT_CAPABLE = re.compile(r"claude-(?:opus-(?:4-[5-9]|5)|sonnet-(?:4-6|5)|fab
 # variant, which is the only one Haiku 4.5 and Sonnet 4.5 accept.
 _NEW_WEB_SEARCH = re.compile(r"claude-(?:opus-(?:4-[6-9]|5)|sonnet-(?:4-6|5)|fable|mythos)")
 
+# Models that can carry an effort change inside `messages` instead of at the
+# top level, which is what lets a step change depth without resetting the
+# cached prefix. Beta, and first-party API only.
+_PER_MESSAGE_EFFORT = re.compile(r"claude-(?:opus-5|fable-5-1|mythos-5-1)")
+PER_MESSAGE_EFFORT_BETA = "mid-conversation-output-config-2026-07-01"
+
+# Not every effort-capable model takes every level, and the exceptions are not
+# a simple ceiling: Opus 4.6 and Sonnet 4.6 accept "max" but not "xhigh",
+# which arrived with Opus 4.7. So this is a membership test, not a rank
+# comparison. Anything effort-capable and unlisted takes all five.
+_ACCEPTED_LEVELS = [
+    (re.compile(r"claude-opus-4-5"), ("low", "medium", "high")),
+    (re.compile(r"claude-(?:opus-4-6|sonnet-4-6)"), ("low", "medium", "high", "max")),
+]
+
 
 def supports_effort(model: str) -> bool:
     return bool(_EFFORT_CAPABLE.search(model or ""))
+
+
+def supports_per_message_effort(model: str) -> bool:
+    return bool(_PER_MESSAGE_EFFORT.search(model or ""))
 
 
 def web_search_tool(model: str, max_uses: int) -> dict:
@@ -80,28 +119,106 @@ EFFORT = {
     "distill":      "low",     # one edit -> one sentence
 }
 
+# The steps whose calls share the generation stage's cached prefix. Their
+# top-level effort must be identical or the prefix is rewritten instead of
+# read — see this module's docstring.
+GENERATION_STEPS = frozenset({
+    "evidence_map", "resume", "phrasing", "factuality", "revision",
+    "cover_letter", "strategy",
+})
+
 _LEVELS = ("low", "medium", "high", "xhigh", "max")
 
+# The level every model treats as its default. Sending it explicitly is the
+# same as omitting the field, so it is what the generation calls pin to.
+DEFAULT_EFFORT = "high"
 
-def effort_for(step: str) -> str:
-    """The effort for one step. ANTHROPIC_EFFORT forces every step to one
-    level, which is how an eval sweep compares settings."""
+
+def accepted_levels(model: str) -> tuple:
+    """The effort levels this model actually takes."""
+    for pattern, levels in _ACCEPTED_LEVELS:
+        if pattern.search(model or ""):
+            return levels
+    return _LEVELS
+
+
+def _clamp(level: str, model: str) -> str:
+    """The nearest level at or below `level` that this model accepts.
+
+    A level the model rejects is a 400 on every call of the run, so a forced
+    ANTHROPIC_EFFORT of "xhigh" on Opus 4.5 becomes "high" rather than
+    breaking the sweep it was set for.
+    """
+    accepted = accepted_levels(model)
+    if level in accepted:
+        return level
+    for candidate in reversed(_LEVELS[:_LEVELS.index(level)]):
+        if candidate in accepted:
+            return candidate
+    return accepted[0]
+
+
+def forced_effort() -> str:
+    """The level ANTHROPIC_EFFORT pins every step to, or "" when unset.
+
+    An eval sweep sets this to compare one setting against another. It applies
+    to every step, including the cached generation calls — one level
+    everywhere is constant, so it is cache-safe.
+    """
     forced = os.environ.get("ANTHROPIC_EFFORT", "").strip().lower()
-    if forced in _LEVELS:
-        return forced
-    return EFFORT[step]
+    return forced if forced in _LEVELS else ""
+
+
+def effort_for(step: str, model: str = None) -> str:
+    """The effort for one step, clamped to what this model accepts."""
+    model = model if model is not None else main_model()
+    return _clamp(forced_effort() or EFFORT[step], model)
 
 
 def request_options(step: str, model: str = None) -> dict:
     """Keyword arguments to splat into messages.create() for one step.
 
-    Empty on models that reject the effort field (Haiku 4.5, Sonnet 4.5 and
-    older), so the same call site works whatever ANTHROPIC_MODEL is set to.
+    Empty when the model rejects the effort field (Haiku 4.5, Sonnet 4.5 and
+    older), and empty for the generation steps unless a sweep is forcing one
+    level: their depth is carried by effort_message() instead, so that the
+    cached prefix they share is not reset between them.
     """
     model = model if model is not None else main_model()
     if not supports_effort(model):
         return {}
-    return {"output_config": {"effort": effort_for(step)}}
+    if step in GENERATION_STEPS and not forced_effort():
+        return {}
+    return {"output_config": {"effort": effort_for(step, model)}}
+
+
+# Set to False for the rest of the process the first time the API rejects the
+# beta, so an account without it pays for one failed call rather than one per
+# call. The fallback is simply the default depth, which is correct, just less
+# thrifty.
+_per_message_effort_ok = True
+
+
+def disable_per_message_effort() -> None:
+    global _per_message_effort_ok
+    _per_message_effort_ok = False
+
+
+def effort_message(step: str, model: str = None):
+    """The `messages` entry that sets this step's depth, or None.
+
+    None means "run this step at the model's default depth" — either because
+    that is what the step asks for, because a sweep is pinning every step from
+    the top level, or because this model cannot change effort without
+    resetting the cache, in which case the cache wins.
+    """
+    model = model if model is not None else main_model()
+    if (not _per_message_effort_ok or forced_effort()
+            or not supports_effort(model) or not supports_per_message_effort(model)):
+        return None
+    level = effort_for(step, model)
+    if level == DEFAULT_EFFORT:
+        return None  # identical to omitting it, so do not spend a message on it
+    return {"role": "system", "content": [], "output_config": {"effort": level}}
 
 
 # --------------------------------------------------------------------------

@@ -177,6 +177,13 @@ def parse_keywords(text: str) -> dict:
         if len(keywords) >= MAX_KEYWORDS:
             break
 
+    # An alias that is also some other keyword's term would score the same
+    # words twice, once under each. The standalone term keeps it.
+    terms = {keyword["term"] for keyword in keywords}
+    for keyword in keywords:
+        keyword["aliases"] = [alias for alias in keyword["aliases"]
+                              if alias not in terms - {keyword["term"]}]
+
     return {"title": str(data.get("title", "")).strip(), "keywords": keywords}
 
 
@@ -185,6 +192,10 @@ def parse_keywords(text: str) -> dict:
 # --------------------------------------------------------------------------
 
 _DASHES = re.compile("[‐‑‒–—−]")
+# "0->1", "0→1" and "0-to-1" are the same claim written three ways, and a
+# posting and a resume rarely pick the same one.
+_ARROWS = re.compile(r"\s*(?:-+>|→|-to-)\s*")
+_POSSESSIVE = re.compile(r"['’]s\b")
 _STOP = {"a", "an", "and", "the", "of", "in", "for", "to", "with", "on", "at", "or"}
 
 
@@ -193,30 +204,75 @@ def _norm(text: str) -> str:
 
     "+" and "#" survive so "C++" and "C#" stay distinct terms; every other
     non-alphanumeric character becomes a space, so "A/B-testing", "A/B
-    testing" and "a b testing" are the same string.
+    testing" and "a b testing" are the same string. Arrow spellings collapse
+    to "to", and a possessive loses its apostrophe rather than splitting the
+    word in two, so "bachelor's degree" and "Bachelors degree" match.
     """
     text = _DASHES.sub("-", text.lower()).replace("&", " and ")
+    text = _ARROWS.sub(" to ", text)
+    text = _POSSESSIVE.sub("s", text)
     text = re.sub(r"[^a-z0-9+# ]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _word(word: str, last: bool) -> str:
+    """One word of a phrase, as a regex.
+
+    Only the last word takes a plural, because that is where English puts it —
+    "product roadmaps", not "products roadmap". Words of one or two letters
+    never take one: without that rule "go" matches "goes", "us" matches
+    "uses" and a posting asking for Go is scored against a resume that never
+    mentions it.
+    """
+    if not last or len(word) <= 2 or not word[-1].isalpha():
+        return re.escape(word)
+    if word.endswith("y") and len(word) > 3 and word[-2] not in "aeiou":
+        return re.escape(word[:-1]) + r"(?:y|ies)"       # strategy / strategies
+    if word.endswith("is") and len(word) > 3:
+        return re.escape(word[:-2]) + r"(?:is|es)"       # analysis / analyses
+    if word.endswith(("s", "x", "z", "ch", "sh")):
+        return re.escape(word) + r"(?:es)?"              # process / processes
+    return re.escape(word) + r"(?:s)?"                   # roadmap / roadmaps
+
+
 def _pattern(phrase: str):
-    """A whole-phrase, singular-or-plural regex for one phrase, normalized
-    the same way as the text it will be searched in."""
+    """A whole-phrase regex for one phrase, normalized the same way as the
+    text it will be searched in.
+
+    "+" and "#" count as part of a word in the boundaries, so the term "c"
+    does not match "C++" or "C#".
+    """
     words = _norm(phrase).split()
     if not words:
         return None
-    body = r"\s+".join(re.escape(w) + r"(?:s|es)?" for w in words)
-    return re.compile(r"(?<![a-z0-9])" + body + r"(?![a-z0-9])")
+    body = r"\s+".join(_word(w, i == len(words) - 1) for i, w in enumerate(words))
+    return re.compile(r"(?<![a-z0-9+#])" + body + r"(?![a-z0-9+#])")
 
 
-def _count(keyword: dict, normalized_text: str) -> int:
-    total = 0
+def _spans(keyword: dict, normalized_text: str) -> list:
+    """Where this keyword appears, counting overlapping forms once.
+
+    A term and its aliases often overlap — "product roadmap" with the alias
+    "roadmap" matches the same words twice. Counting both would inflate the
+    count and trip the repetition flag on a resume that says it three times.
+    """
+    found = []
     for phrase in [keyword["term"]] + list(keyword.get("aliases", [])):
         pattern = _pattern(phrase)
         if pattern:
-            total += len(pattern.findall(normalized_text))
-    return total
+            found.extend(match.span() for match in pattern.finditer(normalized_text))
+
+    merged = []
+    for start, end in sorted(found):
+        if merged and start < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _count(keyword: dict, normalized_text: str) -> int:
+    return len(_spans(keyword, normalized_text))
 
 
 def weight(keyword: dict) -> float:
@@ -275,25 +331,52 @@ def summary(scored: dict) -> dict:
 # The bank as the gate
 # --------------------------------------------------------------------------
 
-def bank_prose(bank) -> str:
-    """Every string in the bank, joined, with unusable claims left out.
+# The bank's fields that describe what the candidate actually did. Everything
+# else in it is bookkeeping — provenance labels, guidance about when a claim
+# may be used, and outright prohibitions — and none of that is evidence.
+#
+# This is a whitelist rather than a list of fields to skip, because the
+# failure it prevents runs one way. Reading `source: "supported_inference"` as
+# evidence puts "inference" in front of the writer as a term the bank
+# supports; reading the rule "Never write '6 years of PM experience'" as
+# evidence offers the candidate "6 years" as an honest edit, which is the
+# exact claim the bank forbids. A field nobody has classified yet should
+# default to "not evidence", and a whitelist is what makes that the default.
+EVIDENCE_FIELDS = frozenset({
+    # what was done
+    "claim", "claims", "actions", "results", "problem", "summary", "story",
+    "lessons", "fact", "career_narrative",
+    # what it was done with
+    "skills", "keywords", "technologies", "tools", "technical", "ai",
+    "product", "domain", "domains", "collaboration", "items",
+    # how it is characterised
+    "primary_strengths", "additional_themes", "narrative_themes",
+    "use_as_evidence_of",
+    # where and when
+    "name", "title", "company", "team", "dates", "location", "level",
+    "language", "credential", "institution",
+})
 
-    Keys are not included — "metrics" and "source" are bank vocabulary, not
-    evidence — and any object whose source is needs_validation is skipped
-    whole, so an unconfirmed claim cannot make a keyword look supported.
+
+def bank_prose(bank) -> str:
+    """The bank's evidence, as one string, for deciding what a term may touch.
+
+    Only the fields named above are read, and any object whose source is
+    needs_validation is skipped whole, so neither an unconfirmed claim nor a
+    label nor a restriction can make a keyword look supported.
     """
     pieces = []
 
-    def walk(node):
+    def walk(node, field=None):
         if isinstance(node, dict):
             if node.get("source") == "needs_validation":
                 return
-            for value in node.values():
-                walk(value)
+            for key, value in node.items():
+                walk(value, key)
         elif isinstance(node, list):
             for value in node:
-                walk(value)
-        elif isinstance(node, str):
+                walk(value, field)
+        elif isinstance(node, str) and field in EVIDENCE_FIELDS:
             pieces.append(node)
 
     walk(bank)
@@ -405,7 +488,17 @@ def format_checks(resume_md: str) -> list:
     bullets = [l for l in lines if l.startswith(("- ", "* "))]
     words = len(re.findall(r"[A-Za-z0-9]+", resume_md))
     quantified = sum(1 for b in bullets if re.search(r"\d", b))
-    contact = next((l for l in lines[1:] if l and not l.startswith(("#", "**"))), "")
+
+    # The contact line is the prose between the name and the first section.
+    # Looking past that heading would find the Profile paragraph and call any
+    # resume contactable, including one a parser has no way to reach anyone by.
+    header = []
+    for line in lines[1:]:
+        if line.startswith("## "):
+            break
+        header.append(line)
+    contact = next((l for l in header
+                    if l and not l.startswith(("#", "**", "- ", "* "))), "")
 
     missing = [s for s in REQUIRED_SECTIONS if s not in headings]
     undated = [j for j in jobs if "|" not in j]
@@ -459,6 +552,34 @@ def _terms(items: list, with_counts: bool = False) -> str:
     return ", ".join(out)
 
 
+def _rephrasing_note(candidates: list, pass_info: dict, target: int) -> str:
+    """What actually happened to the bank-mentioned terms the resume misses.
+
+    Three different things can leave a term here, and telling the candidate it
+    "did not fit" when nothing ever tried to fit it would be the report
+    inventing an outcome. So each case says what it is.
+    """
+    if not pass_info:
+        return (f"No rephrasing pass ran — the draft was already at or above the target "
+                f"({target}) — so these were not tried. A further edit could pick them up "
+                "where a sentence already says the thing, and nowhere else.")
+
+    tried = set(pass_info.get("terms") or [])
+    untried = [k for k in candidates if k["term"] not in tried]
+    if not pass_info.get("kept"):
+        note = ("A rephrasing pass was tried and its result scored no higher, so the "
+                "original draft was kept. These terms are not known not to fit.")
+    else:
+        note = ("The rephrasing pass looked at these and could not work them in without "
+                "claiming something the bank does not say.")
+    if untried:
+        note += (f" {len(untried)} of them were never offered to it: the pass looks at "
+                 f"at most {MAX_REPHRASE_TERMS} terms, strongest first "
+                 f"({', '.join(k['term'] for k in untried)}).")
+    return note + (" Either way, a further edit could only pick one up where a sentence "
+                   "already says the thing.")
+
+
 def report(extracted: dict, resume: dict, letter: dict, target: int,
            candidates: list, gaps: list, checks: list, title: dict,
            pdf: dict, pass_info: dict = None) -> str:
@@ -495,9 +616,10 @@ def report(extracted: dict, resume: dict, letter: dict, target: int,
         "",
         f"**Not used, but the bank mentions the work ({len(candidates)}):** {_terms(candidates)}",
         "",
-        "These did not fit by rephrasing what is already there. They are the only terms a "
-        "further edit could honestly pick up — and only where a sentence already says it.",
-        "",
+    ]
+    if candidates:
+        lines += [_rephrasing_note(candidates, pass_info, target), ""]
+    lines += [
         f"**Not in the experience bank ({len(gaps)}):** {_terms(gaps)}",
         "",
         "Real gaps. Do not add these; a screener may miss them, but an interviewer will not.",
