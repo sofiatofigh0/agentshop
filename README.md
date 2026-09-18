@@ -108,6 +108,29 @@ The bank also tags every claim with provenance — `verified_resume`,
 `candidate_provided`, `supported_inference`, or `needs_validation`. The last is
 never usable in a document, however hedged.
 
+## How a resume bullet is shaped
+
+Every Experience bullet opens with the project it is about, in two or three
+bold words, then the achievement:
+
+```
+- **Advisor summarization** — Shipped an LLM pipeline that cut meeting prep by ~40%.
+- **Eval framework** — Built the rubric and the reporting behind it.
+```
+
+A reviewer scans the left edge of the bullets before reading a full sentence.
+Those labels are what tell them, in a couple of seconds, what kinds of problems
+this candidate has actually worked on.
+
+The label is the experience bank's own name for that project, shortened. It is
+never invented, never a place to park a keyword, and it names the project
+rather than the candidate's role in it.
+
+Bullets that are not about one discrete project stay plain sentences — ongoing
+responsibilities, ways of working, and advisory or consulting engagements
+described as a kind of work rather than a thing that shipped. A label on those
+is padding, and it tells the reviewer nothing.
+
 ## ATS scoring
 
 Before a person reads an application, a screening system usually scores it
