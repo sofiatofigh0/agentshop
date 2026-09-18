@@ -345,11 +345,11 @@ beside the contact block and must not wrap.>**
 ## Experience
 ### <Role> — <Company> | <dates>
 <optional single line describing the employer or scope>
-- <bullet>
-- <bullet>
+- **<project, two or three words>** — <what was done, and what came of it>
+- **<project, two or three words>** — <what was done, and what came of it>
 
 ### <Role> — <Company> | <dates>
-- <bullet>
+- <a plain bullet, where the work was not one discrete project>
 
 ## Selected Projects
 - **<name>** — <one line>
@@ -361,6 +361,23 @@ beside the contact block and must not wrap.>**
 Rules for that structure:
 - The contact line must include the portfolio URL and, when one is set, its
   password, since a gated link without the password is worse than no link.
+- Open each Experience bullet with the project it is about, in two or three
+  words, bold, then an em dash: "**Advisor summarization** — Shipped an LLM
+  pipeline that...". A reviewer scans the left edge of the bullets before
+  reading a single full sentence, and those labels are what tell them the
+  kinds of problems this candidate has worked on.
+    - The label names the project, not the candidate's role in it, and it is
+      the experience bank's own name for that project, shortened. Never invent
+      a project, a product name or a codename to have something to put there.
+    - Two or three words. A label long enough to wrap is a headline, not a
+      signpost, and it costs the line the evidence needs.
+    - Label and sentence stay on one line together wherever the content
+      allows it.
+- Do NOT label a bullet that is not about one discrete project. Ongoing
+  responsibilities, ways of working, and advisory or consulting engagements
+  described as a kind of work rather than a thing that shipped all stay plain
+  sentences — the Confluent consulting work is the clear case. A label on work
+  that was not a project reads as padding and tells the reviewer nothing.
 - Roles go newest first UNLESS a less recent role is markedly more relevant to
   this job, in which case lead with that one.
 - The pipe before the dates is required — it is how the renderer right-aligns
@@ -409,6 +426,10 @@ What you may not do:
   yours
 - repeat a term for effect, or bolt one onto the end of a sentence
 - change any employer, title, date, metric, scope, or the document's structure
+- treat a bullet's bold project label as a slot for a keyword. It names the
+  project and stays two or three words; reword it only if the new wording is
+  still that project's name. A bullet that has no label was left plain on
+  purpose — the work was not one discrete project — so do not add one.
 
 If a term cannot be worked in by rewording something that is already true,
 leave it out. That is the expected outcome for part of the list; the report
