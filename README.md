@@ -291,10 +291,14 @@ run, which is the figure to trust.
 ## Running the CLI
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate   # Python 3.10+; see below on macOS
 pip install -r requirements.txt
 cp .env.example .env      # fill in ANTHROPIC_API_KEY and ANTHROPIC_MODEL
+python -m unittest        # confirms the install before any run costs money
 ```
+
+Python 3.10 or newer is required, and on macOS the PDF renderer needs a native
+text stack as well — "PDF rendering uses WeasyPrint" below has both.
 
 Fill in `experience_bank.py` with real experience — the agent refuses to generate
 application materials while placeholders remain, because it will not invent facts
@@ -393,12 +397,31 @@ applications contain personal information. The resume and cover letter are
 typeset as finished documents; the evidence map, factuality review and strategy
 render as denser internal reports.
 
-PDF rendering uses WeasyPrint. On Linux it installs from pip alone; on macOS it
-also needs its native text stack:
+PDF rendering uses WeasyPrint, which needs **Python 3.10 or newer** and, on
+macOS, a native text stack pip cannot supply. macOS ships Python 3.9, so a venv
+built with the system `python3` resolves to an old WeasyPrint that then fails on
+the first import with `cannot load library 'libgobject-2.0-0'`. Install both,
+then build the venv against the newer Python:
 
 ```bash
-brew install pango libffi
+brew install pango python@3.12     # pango brings glib/gobject, cairo, harfbuzz
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
+
+On Apple Silicon, Homebrew installs to `/opt/homebrew/lib`, which is not on the
+default dynamic-library search path. If the import still cannot find the
+library, point it there:
+
+```bash
+export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib:$DYLD_FALLBACK_LIBRARY_PATH
+```
+
+On Linux it installs from pip alone.
+
+`python -m unittest` is the quickest check that all of this landed: it imports
+the whole pipeline, so a missing text stack fails there rather than part-way
+through a run you have already paid for.
 
 ## The web demo
 
