@@ -33,7 +33,6 @@ from agent import MODEL, evaluate, parse_field, parse_recommendation, report_tex
 import ats
 import lessons
 
-from documents import INSTALL_HINT, docx_available
 from application_generator import (
     ATS_FILE, OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
     render_resume_companions, write_ats_report,
@@ -163,7 +162,7 @@ def history():
                 meta = json.load(handle)
             meta["folder"] = name
             meta["files"] = sorted(f for f in os.listdir(os.path.join(OUTPUT_DIR, name))
-                                   if f.endswith((".pdf", ".docx")))
+                                   if f.endswith(".pdf"))
             # Packages generated before the markdown was kept cannot be edited,
             # so the UI does not offer it for them.
             meta["editable"] = os.path.isfile(os.path.join(OUTPUT_DIR, name, SOURCES_FILE))
@@ -269,20 +268,20 @@ def write_document(folder: str, key: str):
         return jsonify({"error": f"Could not render that text: {exc}"}), 400
     os.replace(draft, final)
 
-    # A resume is three files from one text: the upload PDF just written, and a
-    # Word copy and a designed copy beside it. They are rebuilt now so no copy
-    # is left describing the resume as it was before this edit. The save above
-    # has already succeeded, so a failure here is reported, not raised.
+    # A resume is two files from one text: the upload PDF just written, and the
+    # designed copy beside it. That copy is rebuilt now so it does not go on
+    # describing the resume as it was before this edit. The save above has
+    # already succeeded, so a failure here is reported, not raised.
     warning = None
     if entry["style"] == "resume":
         try:
             problems = render_resume_companions(markdown_text, run_dir, pt)["problems"]
         except Exception as exc:
-            problems = [f"the Word and designed copies could not be rebuilt "
-                        f"({type(exc).__name__})"]
+            problems = [f"the designed copy could not be rebuilt "
+                        f"({type(exc).__name__})."]
         if problems:
             warning = ("Saved, but " + " ".join(problems)
-                       + " Any copy not rebuilt still shows the previous text.")
+                       + " It still shows the previous text.")
 
     before = entry["markdown"]
     entry["markdown"] = markdown_text
@@ -421,8 +420,5 @@ if __name__ == "__main__":
     # Bound to localhost on purpose: this runs the real agent with your key and
     # your private experience bank, and is not built to face the internet.
     port = choose_port(DEFAULT_PORT)
-    if not docx_available():
-        print(f"Note: python-docx is not installed, so resumes will come without the "
-              f".docx copy.\n      Install it with:  {INSTALL_HINT}\n")
     print(f"{TITLE} — http://localhost:{port}")
     app.run(host="127.0.0.1", port=port, debug=False)

@@ -281,11 +281,6 @@ def main() -> None:
     if not MODEL:
         raise SystemExit("ANTHROPIC_MODEL is not set. Copy .env.example to .env and fill it in.")
 
-    from documents import INSTALL_HINT, docx_available
-    if not docx_available():
-        print(f"Note: python-docx is not installed, so the resume will come without its "
-              f".docx copy.\n      Install it with:  {INSTALL_HINT}\n")
-
     job_description = read_job_description()
     if not job_description:
         raise SystemExit("No job description given — nothing to evaluate.")

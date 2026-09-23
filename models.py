@@ -17,10 +17,10 @@ The split between those last two is the whole subtlety of this file, and it
 exists because the two cheapest levers in this project pull against each other.
 
 Effort is where most of a call's cost goes, and the writing steps do not need
-the same depth of reasoning as the verdict or the factuality review. But a
+the same depth of reasoning as the verdict or the evidence map. But a
 top-level effort value is rendered into the prompt itself, so changing it
 between calls starts a new cache prefix — on models that render it ahead of
-the system prompt it invalidates the system cache too. The six generation
+the system prompt it invalidates the system cache too. The generation
 calls share a ~14k-token cached prefix holding the whole experience bank. Vary
 their effort and each one rewrites that prefix instead of reading it, which
 costs far more than the effort ever saved.
@@ -108,12 +108,10 @@ def web_search_tool(model: str, max_uses: int) -> dict:
 EFFORT = {
     "verdict":      "high",    # APPLY / MAYBE / SKIP — the judgement call
     "evidence_map": "high",    # the reasoning every document is built on
-    "factuality":   "high",    # the guardrail
     "resume":       "medium",
     "cover_letter": "medium",
     "strategy":     "medium",
     "phrasing":     "medium",  # rewording for the posting's vocabulary
-    "revision":     "low",     # apply the fixes the review listed
     "search":       "low",     # summarize what a web search returned
     "keywords":     "low",     # extract the terms a screener scans for
     "distill":      "low",     # one edit -> one sentence
@@ -123,8 +121,7 @@ EFFORT = {
 # top-level effort must be identical or the prefix is rewritten instead of
 # read — see this module's docstring.
 GENERATION_STEPS = frozenset({
-    "evidence_map", "resume", "phrasing", "factuality", "revision",
-    "cover_letter", "strategy",
+    "evidence_map", "resume", "phrasing", "cover_letter", "strategy",
 })
 
 _LEVELS = ("low", "medium", "high", "xhigh", "max")

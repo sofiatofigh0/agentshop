@@ -408,10 +408,9 @@ def bank_prose(bank) -> str:
 def bank_supported(missing: list, bank_text: str) -> tuple:
     """Split missing terms into (mentioned in the bank, not in the bank).
 
-    Mention is a text match, not a judgement: it means the rephrasing pass
-    may look at the term, not that the resume may claim it. The model decides
-    whether the underlying work is truly there, and the factuality review
-    checks what it decided.
+    Mention is a text match, not a judgement: it means a writer may look at
+    the term, not that the resume may claim it. The model decides whether the
+    underlying work is truly there, and nothing re-checks that decision.
     """
     candidates, gaps = [], []
     for keyword in missing:
@@ -423,30 +422,54 @@ def bank_supported(missing: list, bank_text: str) -> tuple:
 # Prompt material for the writers
 # --------------------------------------------------------------------------
 
-def prompt_block(extracted: dict, limit: int = 30) -> str:
-    """The keyword list as a writing prompt carries it. Empty if none."""
+def _grouped(keywords: list) -> str:
+    """Terms listed under required / preferred / mentioned, strongest first."""
+    groups = {"required": [], "preferred": [], "mentioned": []}
+    for keyword in sorted(keywords, key=lambda k: -weight(k)):
+        groups[keyword["importance"]].append(keyword["term"])
+    return "\n".join(f"  {name + ':':11s}{', '.join(terms)}"
+                     for name, terms in groups.items() if terms)
+
+
+def prompt_block(extracted: dict, bank_text: str = None, limit: int = 30) -> str:
+    """The keyword list as a writing prompt carries it. Empty if none.
+
+    Given the bank's text, the terms are split by whether the bank uses them.
+    That is the same plain-Python check the rephrasing gate runs after the
+    draft, moved in front of it: a writer who knows which of the posting's
+    words the bank already contains uses them on the first pass, so the draft
+    lands nearer the target and the second, full-resume rephrasing call is
+    needed less often. It also names, before a word is written, the terms the
+    bank never uses — the ones most likely to be reached for dishonestly.
+    """
     keywords = (extracted or {}).get("keywords") or []
     if not keywords:
         return ""
 
     ranked = sorted(keywords, key=lambda k: -weight(k))[:limit]
-    groups = {"required": [], "preferred": [], "mentioned": []}
-    for keyword in ranked:
-        groups[keyword["importance"]].append(keyword["term"])
-    listed = "\n".join(
-        f"  {name + ':':11s}{', '.join(terms)}" for name, terms in groups.items() if terms
-    )
     title = (extracted or {}).get("title") or ""
     title_line = (f"\nThe posting's exact title is \"{title}\". Wherever a document names "
                   "the role, it uses this title verbatim.\n" if title else "")
 
+    if bank_text is None:
+        listing = ("grouped by how firmly the posting asks for them:\n"
+                   f"{title_line}\n{_grouped(ranked)}")
+    else:
+        used = [k for k in ranked if _count(k, bank_text)]
+        unused = [k for k in ranked if not _count(k, bank_text)]
+        listing = f"split by whether the experience bank uses them:\n{title_line}"
+        if used:
+            listing += ("\nTHE BANK USES THESE WORDS. Where a sentence describes this work, "
+                        "write the posting's exact term:\n" + _grouped(used) + "\n")
+        if unused:
+            listing += ("\nTHE BANK NEVER USES THESE WORDS. Use one only where the bank "
+                        "clearly describes that exact work in other words; otherwise leave "
+                        "it out — it is a gap, not a target:\n" + _grouped(unused) + "\n")
+
     return f"""
 
 ATS KEYWORDS — the terms a screening system will scan this document for,
-grouped by how firmly the posting asks for them:
-{title_line}
-{listed}
-
+{listing}
 Use them the way a careful writer would, not the way a keyword stuffer would:
 - Where a sentence already describes this work, say it in the posting's own
   term rather than a synonym. A screener does not know "LLM evals" and "LLM

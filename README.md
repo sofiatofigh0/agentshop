@@ -72,7 +72,7 @@ send the job description + tool definitions
 **Phase 2 is a workflow.** Once a role is worth pursuing, the steps are fixed:
 
 ```
-evidence map  -> resume draft -> [rephrasing pass] -> factuality review -> forced revision if needed
+evidence map  -> resume draft -> [rephrasing pass]
 + ATS keywords
               -> cover letter -> application strategy
               -> ATS report (plain Python, no model)
@@ -94,15 +94,21 @@ guarantee rather than an instruction in a prompt.
 
 ### Factual guardrails
 
-The writer never signs off on its own work:
+An earlier version had a second model read every resume against the experience
+bank and force a revision when a claim went too far. It was removed to make
+runs cheaper and faster. What remains all works upstream of the writing:
 
-1. A requirement-to-evidence map, written before any prose
-2. A resume drafted from that map
-3. A **separate** model call, with its own system prompt, that reads the draft
-   against the experience bank and labels every claim SUPPORTED / PARTIALLY
-   SUPPORTED / UNSUPPORTED
-4. Plain Python reads that verdict and forces a revision pass if anything failed
-5. Only the survivor is written to disk
+1. A requirement-to-evidence map, written before any prose, so the selection is
+   justified before a word gets written
+2. The same ground rules in every writing prompt: the experience bank is the
+   only source of facts — no invented experience, metrics, titles or seniority
+3. Claims marked `needs_validation` stripped from the bank before any model
+   sees it, so they cannot be used however a prompt is read
+4. Each writer told, before it starts, which of the posting's terms the bank
+   never uses — the ones most likely to be reached for dishonestly
+
+These are instructions and omissions, not a check. Nothing reads the finished
+resume back against the bank, so read it before you send it.
 
 The bank also tags every claim with provenance — `verified_resume`,
 `candidate_provided`, `supported_inference`, or `needs_validation`. The last is
@@ -152,10 +158,11 @@ How it works, in order:
    evaluation"). This runs alongside the evidence map; it needs only the
    posting.
 2. **Write with the terms in view.** The resume and cover-letter prompts get
-   the weighted list with one instruction: where a sentence already describes
-   this work, say it in the posting's own term rather than a synonym. Never
-   add a term the bank does not earn, never append lists, never repeat for
-   effect.
+   the weighted list, split by whether the experience bank uses each term.
+   Where a sentence already describes the work, say it in the posting's own
+   term rather than a synonym. A term the bank never uses is a gap unless the
+   bank clearly describes that exact work in other words. Never append lists,
+   never repeat for effect.
 3. **Score.** Plain Python. `score = 100 × weight of matched terms / weight of
    all terms`, where weight is importance (required 3, preferred 2, mentioned
    1) times category (soft skills count half). A match is the posting's own
@@ -172,9 +179,7 @@ How it works, in order:
    not add a bullet, a skill, or a claim; a term the bank never mentions is a
    gap, and no call is spent on it. The reworded draft is kept only if it
    scores higher.
-5. **Review.** The factuality check reads whatever the rephrasing produced,
-   so nothing that pass does escapes the guardrail.
-6. **Report.** `ats_report.pdf` gives the score per document and per category,
+5. **Report.** `ats_report.pdf` gives the score per document and per category,
    how many of the posting's terms appear in its own words, what matched, what
    was said in a different form, what the bank mentions but the resume does
    not yet use, and what is not in the bank at all (the real gaps, marked *do
@@ -200,13 +205,12 @@ before anything changed. Here is what was adopted and what was not.
 | Claim | What changed |
 |---|---|
 | Two columns get scrambled | Measured, not assumed: this project's own two-column PDF reads back with Education ahead of Experience, and with each row fusing a line from the sidebar to a line from the main column. The upload copy is now one column, and `tests/test_documents.py` keeps both results as a regression guard. |
-| Match the exact job title | The title line is the posting's own title, word for word, or its core when the full title will not fit. The Summary's first sentence repeats it. It never overstates seniority: a "Director of Product" posting gets "Senior Product Manager". The factuality review judges that line on seniority alone, or it would revise the exact title away. |
+| Match the exact job title | The title line is the posting's own title, word for word, or its core when the full title will not fit. The Summary's first sentence repeats it. It never overstates seniority: a "Director of Product" posting gets "Senior Product Manager". |
 | Exact words, not synonyms | Scoring now counts only the posting's own term. A resume that says it another way is shown the exact rewording, and those rewordings go to the rephrasing pass first. |
 | Standard headings | Summary, Skills, Work Experience, Projects, Education. The report flags any heading a parser would have to guess at. |
-| Contact details in the body | They always were. The Word copy's header and footer are tested empty. |
+| Contact details in the body | They always were: nothing uses the page margins. |
 | One date format | The bank already used Month Year throughout. The prompt now says why it must stay that way, and the report checks every role. |
 | No icons | Checked by Unicode category; ordinary punctuation passes. |
-| .docx is the safest upload | Every run writes `tailored_resume.docx`, the same single column as a Word document. |
 
 **Not adopted:**
 
@@ -218,18 +222,18 @@ before anything changed. Here is what was adopted and what was not.
 - **A stuffing detector that trips above 35.** No threshold like that is
   documented for any of these systems. What is defensible is already here:
   a flag when one term repeats past the point of use, and no hidden text, ever.
+- **A .docx copy.** An earlier version wrote one; it was removed to keep a
+  single upload format. The PDF is text-based and tested to read back in order,
+  which the write-up itself says modern systems handle.
 
-### The three resume copies
+### The two resume copies
 
 | File | Layout | Use it for |
 |---|---|---|
-| `tailored_resume.docx` | one column | uploading — the format every tracking system parses |
-| `tailored_resume.pdf` | one column | uploading, when a form asks for PDF |
+| `tailored_resume.pdf` | one column | uploading |
 | `resume_designed.pdf` | two columns | people — a referral, an email to a hiring manager, print |
 
-All three come from one markdown source, and an edit in the UI rebuilds all
-three. The Word copy uses the point size the PDF fitted at; Word lays out the
-page itself when it opens the file, so it is not page-counted here.
+Both come from one markdown source, and an edit in the UI rebuilds both.
 
 ## Eval design
 
@@ -261,19 +265,24 @@ behavior. Scoring only the verdict hides that.
 
 ## What a run costs
 
-Each run makes seven to ten model calls: one to four in the agent loop, up to
-three nested web-search summaries, and six or seven in generation. A run used
-to cost more than a dollar; most of that was reasoning depth spent on steps
-that do not need it, and search results re-billed on every turn. The levers,
-in the order they were applied:
+Each run makes six to twelve model calls: one to four in the agent loop, up to
+three nested web-search summaries, and five or six in generation — the
+keyword extraction, the evidence map, the resume, the cover letter and the
+strategy, plus the rephrasing pass when the draft needs it. A run used to cost
+more than a dollar; most of that was reasoning depth spent on steps that do
+not need it, search results re-billed on every turn, and a review pass on the
+resume. The levers, in the order they were applied:
 
 | Lever | What changed | Costs quality? |
 |---|---|---|
-| Per-step effort | Verdict, evidence map and factuality review keep the default depth. Resume, letter, strategy and the rephrasing pass run at `medium`; revision, search summaries, keyword extraction and lesson distillation at `low`. See `EFFORT` in `models.py`, and "Effort against caching" below for how that is delivered. | Not measurably for writing and extraction steps; the reasoning steps are untouched |
+| Per-step effort | Verdict and evidence map keep the default depth. Resume, letter, strategy and the rephrasing pass run at `medium`; search summaries, keyword extraction and lesson distillation at `low`. See `EFFORT` in `models.py`, and "Effort against caching" below for how that is delivered. | Not measurably for writing and extraction steps; the reasoning steps are untouched |
 | Search sub-calls | Two searches per query instead of three, a 200-word summary shape, `low` effort, and a 1,500-token cap. Their usage is now counted in the trace. | No — the agent reads a summary either way |
 | Run context cached | The posting and research sit in the system prompt behind a second cache marker, written once by the evidence-map call and read back by every later call, instead of travelling in the user turn at full price six times. | No |
 | Loop caching | The agent loop moves a cache marker to the newest user turn, so each turn reads the history it already sent. | No |
 | Priced trace | `models.py` carries the price table; the trace and the UI show dollars per run instead of "roughly $1". | No |
+| No review pass | The factuality review and the revision it could trigger are gone. The review ran at the default depth after the resume was written, so it was the costliest call after the evidence map, and it sat on the longest branch of the run. | Yes — see "Factual guardrails" |
+| Bank-aware first draft | The writers are told up front which of the posting's terms the bank uses, the same plain-Python check the rephrasing gate runs afterwards. A first draft that uses them lands nearer the target, so the second, full-resume rephrasing call fires less often. | No |
+| Bounded outputs | Output tokens cost five times input and set the pace. Every document waits for the evidence map, which is now at most 12 rows of short phrases. The strategy brief is bullets, about 700 words, with six interview questions. | Slightly: shorter internal documents, same facts |
 
 ### Effort against caching
 
@@ -281,9 +290,9 @@ These two levers pull against each other, and the conflict is not obvious.
 
 A top-level effort value is rendered into the prompt itself, so changing it
 between calls starts a new cache prefix — and on models that render it ahead of
-the system prompt, it invalidates the system cache too. The six generation
-calls share a cached prefix of roughly fourteen thousand tokens, most of it the
-experience bank. Giving each of them its own effort would make five of them
+the system prompt, it invalidates the system cache too. The generation calls
+share a cached prefix of roughly fourteen thousand tokens, most of it the
+experience bank. Giving each of them its own effort would make most of them
 rewrite that prefix instead of reading it, which costs several times what the
 effort saves. With a one-hour cache it would cost more than not caching at all.
 
@@ -320,12 +329,15 @@ Three optional settings in `.env` go further:
   to the nearest one it does, rather than failing every call in the run.
 
 Estimated from the code rather than measured — nothing in this repo spends
-money on a benchmark — the changes take a no-search run on Opus 5 from roughly
-$1.20 to roughly $0.70–0.80, and a two-search run from roughly $1.90 to about
-$1.00; `ANTHROPIC_WORKER_MODEL=claude-sonnet-5` takes a further ten to fifteen
-cents off a searching run. Most of what remains is the reasoning on the three
-steps that keep the default depth. The trace prints the real number for every
-run, which is the figure to trust.
+money on a benchmark — a no-search run on Opus 5 went from roughly $1.20 to
+roughly $0.70–0.80 with the first five levers, and removing the review and
+bounding the outputs takes about another $0.15–0.20 off, to roughly
+$0.55–0.60. The same removal takes the review off the run's longest branch,
+which by the same estimate saves about a minute of wall-clock per run.
+`ANTHROPIC_WORKER_MODEL=claude-sonnet-5` takes a further ten to fifteen cents
+off a searching run. Most of what remains is the verdict and the evidence map,
+the two steps that keep the default depth. The trace prints the real number
+for every run, which is the figure to trust.
 
 ## Limitations
 
@@ -334,7 +346,8 @@ run, which is the figure to trust.
   whether a person will like the document. Treat a low score as a prompt to
   read the report, not as a target.
 - Tool-use behavior varies between runs on identical input.
-- The factuality check is a second model call, not a formal verifier.
+- Nothing checks a generated resume against the experience bank. The ground
+  rules are instructions, not a verifier; read a resume before sending it.
 - One search tool, one candidate. A personal workflow, not a product.
 
 ## Running the CLI
@@ -346,10 +359,7 @@ cp .env.example .env      # fill in ANTHROPIC_API_KEY and ANTHROPIC_MODEL
 ```
 
 After pulling changes, run `pip install -r requirements.txt` again: new
-dependencies are not picked up by an existing virtualenv. The one most likely
-to be missing is `python-docx`, which writes the resume's `.docx` copy. Without
-it a run still completes, and the app says at startup and in the run log that
-the Word copy was skipped.
+dependencies are not picked up by an existing virtualenv.
 
 Fill in `experience_bank.py` with real experience — the agent refuses to generate
 application materials while placeholders remain, because it will not invent facts
@@ -374,8 +384,8 @@ progress rather than holding an HTTP request open.
 
 When it finishes you get the verdict, the reasoning, any searches the agent
 chose to make, the ATS score of the resume and the cover letter, what the run
-cost, and links to every document — the resume three ways, the cover letter,
-and four internal reports. Past applications stay listed down the
+cost, and links to every document — the resume two ways, the cover letter,
+and three internal reports. Past applications stay listed down the
 right-hand side with company, role, date, verdict and score, so months later
 you can tell what each set of documents was for.
 
@@ -401,8 +411,8 @@ typographic result — `documents.py` walks a density ladder until the page hold
 therefore writes a `sources.json` holding the markdown behind every PDF, and an
 edit re-renders through the same entry point generation uses.
 
-Two things worth knowing. The factuality check does not re-run on an edit, so
-anything added by hand is unguarded — the ATS score does re-run, in plain
+Two things worth knowing. Nothing checks an edit against the experience bank,
+so anything added by hand is on you — the ATS score does re-run, in plain
 Python, so the effect of a wording change is visible at once. And packages generated before this existed
 kept no markdown; those rows say so and can only be made editable by re-running
 the posting.
@@ -445,10 +455,9 @@ distillation is swallowed, because an edit that cannot be learned from is still
 an edit that saved correctly.
 
 Output lands in `outputs/`, which is gitignored because generated applications
-contain personal information. The resume comes three ways — see "The three
+contain personal information. The resume comes two ways — see "The two
 resume copies" above — and the cover letter as a finished PDF. The evidence
-map, factuality review, strategy and ATS report render as denser internal
-reports.
+map, strategy and ATS report render as denser internal reports.
 
 PDF rendering uses WeasyPrint. On Linux it installs from pip alone; on macOS it
 also needs its native text stack:

@@ -1,8 +1,8 @@
-"""The three renders of a resume, and what a parser makes of each.
+"""The two renders of a resume, and what a parser makes of each.
 
-The upload copies — single-column PDF and .docx — are tested for the things a
-screening system trips on: reading order, text-only bullets, contact details in
-the body, no tables. The two-column designed copy is tested for the opposite:
+The upload copy — the single-column PDF — is tested for the things a screening
+system trips on: reading order, text-only bullets, contact details in the body,
+no tables. The two-column designed copy is tested for the opposite:
 that it really does scramble when read as one stream, which is the reason it
 is not the upload copy. If that test ever starts failing, the layout changed
 and the advice in the UI should be revisited.
@@ -111,73 +111,6 @@ class ReadingOrder(unittest.TestCase):
                  ("advisor summarization", "jpmorgan chase", "flatiron school",
                   "march 2026", "september 2015")]
         self.assertTrue(ats.pdf_text_check(path, terms)["ok"])
-
-
-class WordLibrary(unittest.TestCase):
-    def test_availability_is_detected(self):
-        import sys
-        from unittest import mock
-        self.assertTrue(documents.docx_available())
-        with mock.patch.dict(sys.modules, {"docx": None}):
-            self.assertFalse(documents.docx_available())
-
-    def test_the_library_is_a_declared_requirement(self):
-        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(here, "requirements.txt")) as handle:
-            self.assertIn("python-docx", handle.read().split())
-
-
-class WordCopy(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        from docx import Document
-        cls.tmp = tempfile.TemporaryDirectory()
-        path = os.path.join(cls.tmp.name, "resume.docx")
-        documents.write_resume_docx(RESUME, path, pt=9.6)
-        cls.doc = Document(path)
-        cls.paragraphs = [(p.style.name, p.text, [r.text for r in p.runs if r.bold])
-                          for p in cls.doc.paragraphs]
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.tmp.cleanup()
-
-    def test_nothing_lives_in_the_header_or_footer(self):
-        """Some parsers skip them, and would lose whoever the resume belongs to."""
-        section = self.doc.sections[0]
-        self.assertEqual("".join(p.text for p in section.header.paragraphs), "")
-        self.assertEqual("".join(p.text for p in section.footer.paragraphs), "")
-
-    def test_no_tables_or_shapes(self):
-        self.assertEqual(len(self.doc.tables), 0)
-        self.assertEqual(len(self.doc.inline_shapes), 0)
-
-    def test_name_title_and_contact_open_the_body(self):
-        texts = [t for _, t, _ in self.paragraphs[:3]]
-        self.assertEqual(texts[0], "Jane Example")
-        self.assertEqual(texts[1], "Senior Product Manager")
-        self.assertIn("jane@example.com", texts[2])
-        self.assertIn("jane.example.com", texts[2])   # the address, not "portfolio"
-
-    def test_sections_are_real_headings_in_order(self):
-        headings = [t for style, t, _ in self.paragraphs if style == "Heading 1"]
-        self.assertEqual(headings, ["Summary", "Skills", "Work Experience", "Education"])
-
-    def test_role_line_is_one_line_with_a_tab_before_the_dates(self):
-        roles = [t for _, t, _ in self.paragraphs if "\t" in t]
-        self.assertEqual(roles[0],
-                         "AI Product Manager, Senior Associate — JPMorgan Chase\tMarch 2026 - Present")
-
-    def test_bullets_use_the_list_style_and_keep_the_bold_label(self):
-        bullets = [(t, bold) for style, t, bold in self.paragraphs if style == "List Bullet"]
-        self.assertEqual(len(bullets), 3)
-        self.assertEqual(bullets[0][1], ["Advisor summarization"])
-
-    def test_letter_size_and_body_font(self):
-        section = self.doc.sections[0]
-        self.assertAlmostEqual(section.page_width.inches, 8.5)
-        self.assertAlmostEqual(section.page_height.inches, 11)
-        self.assertEqual(self.doc.styles["Normal"].font.name, "Arial")
 
 
 if __name__ == "__main__":

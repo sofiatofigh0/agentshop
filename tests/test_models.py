@@ -49,7 +49,7 @@ class Effort(unittest.TestCase):
         """One level everywhere is constant, so it is still cache-safe."""
         with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5",
                                           "ANTHROPIC_EFFORT": "LOW"}):
-            self.assertEqual(models.effort_for("factuality"), "low")
+            self.assertEqual(models.effort_for("evidence_map"), "low")
             sent = {json.dumps(models.request_options(step), sort_keys=True)
                     for step in list(models.GENERATION_STEPS) + ["search", "verdict"]}
             self.assertEqual(sent, {'{"output_config": {"effort": "low"}}'})
@@ -59,7 +59,7 @@ class Effort(unittest.TestCase):
         with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5",
                                           "ANTHROPIC_EFFORT": "bogus"}):
             self.assertEqual(models.forced_effort(), "")
-            self.assertEqual(models.effort_for("factuality"), "high")
+            self.assertEqual(models.effort_for("evidence_map"), "high")
 
     def test_every_step_has_a_level(self):
         for step, level in models.EFFORT.items():
@@ -123,8 +123,8 @@ class PerMessageEffort(unittest.TestCase):
 
     def test_default_depth_needs_no_message(self):
         """Sending the default is the same as omitting it."""
-        self.assertIsNone(models.effort_message("factuality", "claude-opus-5"))
-        self.assertEqual(models.EFFORT["factuality"], models.DEFAULT_EFFORT)
+        self.assertIsNone(models.effort_message("evidence_map", "claude-opus-5"))
+        self.assertEqual(models.EFFORT["evidence_map"], models.DEFAULT_EFFORT)
 
     def test_unsupported_models_get_nothing(self):
         for model in ("claude-opus-4-8", "claude-sonnet-5", "claude-fable-5",
