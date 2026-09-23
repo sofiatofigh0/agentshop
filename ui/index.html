@@ -470,12 +470,20 @@ const $ = s => document.querySelector(s);
 let started = 0, timer = null;
 
 const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+// The resume comes three ways from one text. The Word file is the safest to
+// upload; the designed PDF is two columns, for people rather than parsers.
 const LABELS = {
-  "tailored_resume.pdf":"Resume", "cover_letter.pdf":"Cover letter",
+  "tailored_resume.docx":"Resume (.docx, upload this)",
+  "tailored_resume.pdf":"Resume (PDF, single column)",
+  "resume_designed.pdf":"Resume (designed, for people)",
+  "cover_letter.pdf":"Cover letter",
   "application_strategy.pdf":"Strategy", "evidence_map.pdf":"Evidence map",
   "factuality_review.pdf":"Factuality review", "ats_report.pdf":"ATS report"
 };
 const label = f => LABELS[f] || f;
+const ORDER = Object.keys(LABELS);
+const byOrder = files => [...files].sort((a, b) =>
+  (ORDER.indexOf(a) + 1 || 99) - (ORDER.indexOf(b) + 1 || 99));
 
 // Weighted share of the posting's own terms a document uses. Green at or
 // above the target, amber within fifteen points of it, red below that.
@@ -489,7 +497,8 @@ function atsChip(score, target) {
 // The API addresses a document by key, never by filename, so the server
 // decides which file an edit touches.
 const KEYS = {
-  "tailored_resume.pdf":"resume", "cover_letter.pdf":"cover_letter",
+  "tailored_resume.pdf":"resume", "tailored_resume.docx":"resume",
+  "resume_designed.pdf":"resume", "cover_letter.pdf":"cover_letter",
   "application_strategy.pdf":"strategy", "evidence_map.pdf":"evidence_map",
   "factuality_review.pdf":"factuality_review"
 };
@@ -523,7 +532,7 @@ async function loadHistory() {
         </span>
       </div>
       <div class="dt">${esc((r.generated_at || "").replace("T", " "))}</div>
-      <div class="links">${(r.files || []).map(f =>
+      <div class="links">${byOrder(r.files || []).map(f =>
         `<span class="pair"><a href="${href(r.folder, f)}" target="_blank">${label(f)}</a>${editBtn(r.folder, f, r.editable)}</span>`
       ).join("")}${r.editable ? "" :
         '<span class="note" title="The markdown behind these PDFs was not kept for runs generated before editing existed.">text not kept &mdash; re-run to edit</span>'}</div>
@@ -683,7 +692,10 @@ sheet.save.addEventListener("click", async () => {
                 + (data.ats != null ? `, ATS ${data.ats}/100` : "");
     const lesson = data.learned && data.learned.lesson;
 
-    if (data.fitted && data.pages > 1) {
+    if (data.warning) {
+      say(data.warning, true);
+      sheet.save.disabled = false;
+    } else if (data.fitted && data.pages > 1) {
       say(`Saved, but it came to ${data.pages} pages even at ${data.body_pt}pt. Trim it to fit.`, true);
       sheet.save.disabled = false;
     } else if (lesson) {
@@ -731,7 +743,7 @@ async function poll(id) {
 
   const folder = (s.run_dir || "").split("/").pop();
   const files = (s.files || []).length
-    ? `<ul class="files">${s.files.map(f =>
+    ? `<ul class="files">${byOrder(s.files).map(f =>
         `<li><a href="${href(folder, f)}" target="_blank">${label(f)}</a>
         <span class="kind">${esc(f)} ${editBtn(folder, f, true)}</span></li>`).join("")}</ul>`
     : `<div class="notice">No materials were generated for this run.</div>`;

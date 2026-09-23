@@ -110,7 +110,7 @@ never usable in a document, however hedged.
 
 ## How a resume bullet is shaped
 
-Every Experience bullet opens with the project it is about, in two or three
+Every Work Experience bullet opens with the project it is about, in two or three
 bold words, then the achievement:
 
 ```
@@ -158,29 +158,78 @@ How it works, in order:
    effect.
 3. **Score.** Plain Python. `score = 100 × weight of matched terms / weight of
    all terms`, where weight is importance (required 3, preferred 2, mentioned
-   1) times category (soft skills count half). A match is the exact term or a
-   listed alias, singular or plural, as a whole phrase. Nothing fuzzier,
-   because a screener is not fuzzier either.
+   1) times category (soft skills count half). A match is the posting's own
+   term as a whole phrase, singular or plural. An alias — "LLM evals" for "LLM
+   evaluation", an abbreviation, another phrasing — does not count: a
+   recruiter searches for the posting's words, and a synonym is not found.
+   Such a term is listed as *said in a different form* instead.
 4. **Rephrase — sometimes.** If the draft is below the target (75, Jobscan's
-   published guidance) *and* some missing term is at least mentioned in the
-   experience bank, one more call rewords the sentences that already say the
-   thing, in the posting's words, changing sentence structure where it has to.
-   It may not add a bullet, a skill, or a claim. A term the bank never
-   mentions is a gap, and no call is spent on it. The reworded draft is kept
-   only if it scores higher.
+   published guidance) and there is something honest to offer, one more call
+   rewords sentences that already say the thing, in the posting's words,
+   changing sentence structure where it has to. Terms said in a different
+   form go first — the claim is already on the page, so rewording it adds
+   nothing. Then missing terms the experience bank at least mentions. It may
+   not add a bullet, a skill, or a claim; a term the bank never mentions is a
+   gap, and no call is spent on it. The reworded draft is kept only if it
+   scores higher.
 5. **Review.** The factuality check reads whatever the rephrasing produced,
    so nothing that pass does escapes the guardrail.
 6. **Report.** `ats_report.pdf` gives the score per document and per category,
-   what matched, what the bank mentions but did not fit naturally, what is not
-   in the bank at all (the real gaps, marked *do not add*), the title-line
-   overlap, the formatting checks a parser trips on, and whether every matched
-   term can be read back out of the finished PDF — a resume the parser cannot
-   read scores zero whatever the markdown says.
+   how many of the posting's terms appear in its own words, what matched, what
+   was said in a different form, what the bank mentions but the resume does
+   not yet use, and what is not in the bank at all (the real gaps, marked *do
+   not add*). Then whether the title line carries the posting's title word for
+   word and the Summary repeats it; the parser-facing checks — standard
+   headings, one date format, no icons, a contact line; and whether each copy
+   reads back in order when a parser extracts it.
 
 The score is a proxy for one filter, not a measure of quality. It is shown
 beside the verdict so a low number can be understood, not so it can be chased.
 Editing a resume or letter in the UI re-scores it on the spot, with no model
 call, so the effect of a change is visible immediately.
+
+## What a screening system actually reads
+
+A widely shared write-up on applicant tracking systems (Workday, Greenhouse,
+Lever, iCIMS, Taleo) makes a set of claims about what gets a resume found. Some
+of them are checkable against this project's own output, and were checked
+before anything changed. Here is what was adopted and what was not.
+
+**Adopted:**
+
+| Claim | What changed |
+|---|---|
+| Two columns get scrambled | Measured, not assumed: this project's own two-column PDF reads back with Education ahead of Experience, and with each row fusing a line from the sidebar to a line from the main column. The upload copy is now one column, and `tests/test_documents.py` keeps both results as a regression guard. |
+| Match the exact job title | The title line is the posting's own title, word for word, or its core when the full title will not fit. The Summary's first sentence repeats it. It never overstates seniority: a "Director of Product" posting gets "Senior Product Manager". The factuality review judges that line on seniority alone, or it would revise the exact title away. |
+| Exact words, not synonyms | Scoring now counts only the posting's own term. A resume that says it another way is shown the exact rewording, and those rewordings go to the rephrasing pass first. |
+| Standard headings | Summary, Skills, Work Experience, Projects, Education. The report flags any heading a parser would have to guess at. |
+| Contact details in the body | They always were. The Word copy's header and footer are tested empty. |
+| One date format | The bank already used Month Year throughout. The prompt now says why it must stay that way, and the report checks every role. |
+| No icons | Checked by Unicode category; ordinary punctuation passes. |
+| .docx is the safest upload | Every run writes `tailored_resume.docx`, the same single column as a Word document. |
+
+**Not adopted:**
+
+- **A 25–35 keyword "sweet spot."** No mechanism is given, and the right number
+  depends on the posting — a thin one might have twelve real terms. A floor
+  would push the writer to pad, which the no-forcing rule exists to prevent.
+  The report shows "posting terms used in the posting's own words: N of M"
+  instead, which is the thing a recruiter's search actually sees.
+- **A stuffing detector that trips above 35.** No threshold like that is
+  documented for any of these systems. What is defensible is already here:
+  a flag when one term repeats past the point of use, and no hidden text, ever.
+
+### The three resume copies
+
+| File | Layout | Use it for |
+|---|---|---|
+| `tailored_resume.docx` | one column | uploading — the format every tracking system parses |
+| `tailored_resume.pdf` | one column | uploading, when a form asks for PDF |
+| `resume_designed.pdf` | two columns | people — a referral, an email to a hiring manager, print |
+
+All three come from one markdown source, and an edit in the UI rebuilds all
+three. The Word copy uses the point size the PDF fitted at; Word lays out the
+page itself when it opens the file, so it is not page-counted here.
 
 ## Eval design
 
@@ -319,7 +368,8 @@ progress rather than holding an HTTP request open.
 
 When it finishes you get the verdict, the reasoning, any searches the agent
 chose to make, the ATS score of the resume and the cover letter, what the run
-cost, and links to the six PDFs. Past applications stay listed down the
+cost, and links to every document — the resume three ways, the cover letter,
+and four internal reports. Past applications stay listed down the
 right-hand side with company, role, date, verdict and score, so months later
 you can tell what each set of documents was for.
 
@@ -388,10 +438,11 @@ actually reads. The learning is best-effort — a failed or unparseable
 distillation is swallowed, because an edit that cannot be learned from is still
 an edit that saved correctly.
 
-Output lands in `outputs/` as PDFs, which is gitignored because generated
-applications contain personal information. The resume and cover letter are
-typeset as finished documents; the evidence map, factuality review and strategy
-render as denser internal reports.
+Output lands in `outputs/`, which is gitignored because generated applications
+contain personal information. The resume comes three ways — see "The three
+resume copies" above — and the cover letter as a finished PDF. The evidence
+map, factuality review, strategy and ATS report render as denser internal
+reports.
 
 PDF rendering uses WeasyPrint. On Linux it installs from pip alone; on macOS it
 also needs its native text stack:

@@ -50,8 +50,11 @@ TAIL = """
 **BS Computer Science**
 State University · 2016 – 2020
 """
-# roadmap only: 3 of 12 weight = 25
+# Only "the roadmap": the alias of "product roadmap", so a variant. Exact score 0.
 DRAFT = HEAD + "- Owned the roadmap for the evaluation suite used by 40 teams.\n" + TAIL
+# No exact term and no variant either — not even "Roadmaps" in the Skills list.
+BARE = (HEAD.replace("- Roadmaps\n", "- Planning\n")
+        + "- Owned the evaluation suite used by 40 teams.\n" + TAIL)
 # roadmap + sql + llm evaluation: 9 of 12 = 75
 REWORDED = HEAD + ("- Owned the product roadmap for the LLM evaluation suite used by 40 teams.\n"
                    "- Built the SQL reporting behind it.\n") + TAIL
@@ -139,15 +142,24 @@ class Pipeline(unittest.TestCase):
         self.assertAlmostEqual(package["cost_usd"], round(7 * (1000 * 5 + 500 * 25) / 1e6, 4))
 
         run_dir = package["run_dir"]
-        for name in ("tailored_resume.pdf", "cover_letter.pdf", "evidence_map.pdf",
+        for name in ("tailored_resume.pdf", "tailored_resume.docx", "resume_designed.pdf",
+                     "cover_letter.pdf", "evidence_map.pdf",
                      "factuality_review.pdf", "application_strategy.pdf", "ats_report.pdf",
                      gen.ATS_FILE, gen.SOURCES_FILE, "run.json"):
             self.assertTrue(os.path.isfile(os.path.join(run_dir, name)), name)
+        self.assertEqual(set(package["files"]) >= {"resume", "resume_docx", "resume_designed"},
+                         True)
+        self.assertTrue(any("tailored_resume.docx" in line for line in self.progress))
+        # sources.json names the upload copy only; the other two derive from it.
+        with open(os.path.join(run_dir, gen.SOURCES_FILE)) as handle:
+            self.assertEqual(json.load(handle)["resume"]["file"], "tailored_resume.pdf")
         with open(os.path.join(run_dir, gen.ATS_FILE)) as handle:
             data = json.load(handle)
+        # The variant leads: the draft already says "roadmap", so rewording it
+        # to "product roadmap" adds no claim. Then the bank-mentioned terms.
         self.assertEqual(data["rephrasing_pass"],
-                         {"considered": 2, "before": 25, "after": 75, "kept": True,
-                          "terms": ["llm evaluation", "sql"]})
+                         {"considered": 3, "before": 0, "after": 75, "kept": True,
+                          "terms": ["product roadmap", "llm evaluation", "sql"]})
         self.assertEqual(data["resume"]["score"], 75)
         self.assertEqual(len(data["keywords"]), 5)
         with open(os.path.join(run_dir, "run.json")) as handle:
@@ -164,19 +176,29 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(package["ats"]["resume"], 100)
         self.assertEqual(package["generation_calls"], 6)
 
-    def test_no_rephrasing_when_bank_mentions_nothing(self):
-        fake = Fake()
+    def test_no_rephrasing_when_there_is_nothing_honest_to_offer(self):
+        """No variant on the page and nothing in the bank: no call is spent."""
+        fake = Fake(resume=BARE)
         with mock.patch.object(gen, "BANK_PROSE", "unrelated work entirely"):
             package = self.run_pipeline(fake)
         self.assertNotIn("phrasing", fake.steps)
-        self.assertEqual(package["ats"]["resume"], 25)
+        self.assertEqual(package["ats"]["resume"], 0)
+
+    def test_a_variant_alone_justifies_the_pass(self):
+        """A variant is already claimed on the page, so it needs no bank check."""
+        fake = Fake()
+        with mock.patch.object(gen, "BANK_PROSE", "unrelated work entirely"):
+            self.run_pipeline(fake)
+        self.assertIn("phrasing", fake.steps)
+        self.assertIn('"roadmap" -> "product roadmap"', fake.inputs["phrasing"][1])
+        self.assertNotIn("NOT YET USED", fake.inputs["phrasing"][1])
 
     def test_reworded_draft_dropped_when_it_does_not_score_higher(self):
         fake = Fake(reworded=DRAFT)
         package = self.run_pipeline(fake)
         self.assertIn("phrasing", fake.steps)
         self.assertIn("Owned the roadmap for the evaluation suite", fake.inputs["factuality"][1])
-        self.assertEqual(package["ats"]["resume"], 25)
+        self.assertEqual(package["ats"]["resume"], 0)
 
     def test_revision_follows_a_failed_review(self):
         fake = Fake(review=DIRTY_REVIEW)

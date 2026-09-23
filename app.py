@@ -35,7 +35,7 @@ import lessons
 
 from application_generator import (
     ATS_FILE, OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
-    write_ats_report,
+    render_resume_companions, write_ats_report,
 )
 
 app = Flask(__name__, static_folder=None)
@@ -162,7 +162,7 @@ def history():
                 meta = json.load(handle)
             meta["folder"] = name
             meta["files"] = sorted(f for f in os.listdir(os.path.join(OUTPUT_DIR, name))
-                                   if f.endswith(".pdf"))
+                                   if f.endswith((".pdf", ".docx")))
             # Packages generated before the markdown was kept cannot be edited,
             # so the UI does not offer it for them.
             meta["editable"] = os.path.isfile(os.path.join(OUTPUT_DIR, name, SOURCES_FILE))
@@ -268,6 +268,18 @@ def write_document(folder: str, key: str):
         return jsonify({"error": f"Could not render that text: {exc}"}), 400
     os.replace(draft, final)
 
+    # A resume is three files from one text: the upload PDF just written, and a
+    # Word copy and a designed copy beside it. They are rebuilt now so no copy
+    # is left describing the resume as it was before this edit. The save above
+    # has already succeeded, so a failure here is reported, not raised.
+    warning = None
+    if entry["style"] == "resume":
+        try:
+            render_resume_companions(markdown_text, run_dir, pt)
+        except Exception as exc:
+            warning = (f"Saved, but the Word and designed copies could not be rebuilt "
+                       f"({type(exc).__name__}); they still show the previous text.")
+
     before = entry["markdown"]
     entry["markdown"] = markdown_text
     with open(os.path.join(run_dir, SOURCES_FILE), "w") as handle:
@@ -298,7 +310,7 @@ def write_document(folder: str, key: str):
     )
 
     fitted = entry["style"] in ("resume", "letter")
-    return jsonify({"file": entry["file"], "pages": pages, "body_pt": pt,
+    return jsonify({"file": entry["file"], "pages": pages, "body_pt": pt, "warning": warning,
                     "fitted": fitted, "learned": learned, "ats": rescored})
 
 
