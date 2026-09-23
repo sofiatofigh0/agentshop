@@ -109,7 +109,7 @@ PERSONAL_BACKGROUND = {
         {"language": "German", "level": "intermediate", "source": "candidate_provided"},
     ],
     "transition_story": {
-        "fact": "Completed a coding bootcamp around 2020 while transitioning deeper into technology",
+        "fact": "Completed the Flatiron School full-stack coding bootcamp in 2020 while transitioning deeper into technology",
         "source": "candidate_provided",
         "use_when": "founder-type applications, grit questions, unconventional-path questions, 'tell us something not on your resume'",
     },
@@ -722,13 +722,50 @@ EXPERIENCE_BANK = {
         },
     ],
 
+    # `include` decides which entries a resume lists:
+    #   always         every resume, newest first
+    #   when_relevant  only when `use_when` genuinely fits the posting
     "education": [
+        {
+            "institution": "Flatiron School",
+            "credential": "Full-Stack Coding Bootcamp",
+            "dates": "2020",
+            "source": "candidate_provided",
+            "include": "always",
+            "notes": (
+                "Year only: no months were given, and none should be invented. The "
+                "credential wording is Sofia's own; swap in Flatiron's official program "
+                "name if she confirms it. It backs the technical-foundation positioning "
+                "on every resume, not only technical roles."
+            ),
+        },
         {
             "institution": "Columbia University",
             "credential": "BA, Economics",
             "dates": "September 2015 - May 2019",
             "source": "verified_resume",
+            "include": "always",
             "notes": "",
+        },
+        {
+            "institution": "Tehran International School",
+            "location": "Tehran, Iran",
+            "credential": "International Baccalaureate",
+            "dates": "",
+            "source": "candidate_provided",
+            "include": "when_relevant",
+            "use_when": (
+                "the posting values an international or cross-cultural background, "
+                "global or multi-region work, or Middle East or Persian-language "
+                "markets; or the application asks for full education history"
+            ),
+            "notes": (
+                "Secondary school. A resume with a bachelor's degree and several years "
+                "of experience conventionally leaves high school off, so by default "
+                "this line is better spent on evidence. Where the posting rewards an "
+                "international background it earns its place, alongside the origin "
+                "and language entries in personal_background. No dates were given."
+            ),
         },
     ],
 

@@ -35,16 +35,23 @@ The scoring formula, so it can be read off the report rather than trusted:
     weight = importance (required 3, preferred 2, mentioned 1)
              x category (soft skills count half; everything else counts full)
 
-A match is the term or any alias as a whole phrase, case-insensitive, plural
-or singular, after punctuation is normalized — so "A/B testing" matches
-"A/B tests" and "LLM eval" does not match "LLM evaluation" unless the extractor
-listed it as an alias. Nothing fuzzier than that, because a screener is not
-fuzzier than that either.
+A match is the posting's own term as a whole phrase, case-insensitive, plural
+or singular, after punctuation is normalized — so "product roadmaps" matches
+"product roadmap", and "0->1" matches "0-to-1". Those are the forms a search
+engine folds together.
+
+An alias — an abbreviation, an expansion, another phrasing — does NOT count
+toward the score. A recruiter searches the tracking system for the posting's
+words, and "LLM evals" is simply not found by a search for "LLM evaluation".
+A document that says the thing in a different form is listed separately, as
+a variant: the claim is already on the page in other words, which makes it the
+safest rewording there is.
 """
 
 import json
 import os
 import re
+import unicodedata
 
 import anthropic
 from pypdf import PdfReader
@@ -280,34 +287,48 @@ def weight(keyword: dict) -> float:
             * CATEGORY_WEIGHT.get(keyword.get("category"), 1.0))
 
 
+def _exact(term: str, normalized_text: str) -> int:
+    """How often one phrase appears, with no aliases considered."""
+    return _count({"term": term, "aliases": []}, normalized_text)
+
+
 def score(keywords: list, text: str) -> dict:
     """Weighted keyword coverage of one document.
 
     Returns the score (0-100, or None when there are no keywords), the matched
-    terms with how often each appears, the missing terms strongest first, the
-    coverage per category, and any term repeated past STUFFING_LIMIT.
+    terms with how often each appears, the variants — terms the document says
+    only in another form, with the form it used — the missing terms strongest
+    first, the coverage per category, and any term repeated past
+    STUFFING_LIMIT. Only an exact match counts toward the score.
     """
     normalized = _norm(text)
-    matched, missing = [], []
+    matched, variants, missing = [], [], []
     got, total = 0.0, 0.0
     by_category = {cat: [0.0, 0.0] for cat in CATEGORIES}
 
     for keyword in keywords:
         w = weight(keyword)
-        n = _count(keyword, normalized)
         total += w
         by_category[keyword["category"]][1] += w
-        if n:
+        if _exact(keyword["term"], normalized):
             got += w
             by_category[keyword["category"]][0] += w
-            matched.append({**keyword, "count": n, "weight": w})
+            # The count covers every form, since repetition is about how often
+            # the idea recurs, whatever words carry it.
+            matched.append({**keyword, "count": _count(keyword, normalized), "weight": w})
+            continue
+        used = next((a for a in keyword.get("aliases", []) if _exact(a, normalized)), None)
+        if used:
+            variants.append({**keyword, "weight": w, "used": used})
         else:
             missing.append({**keyword, "weight": w})
 
+    variants.sort(key=lambda k: (-k["weight"], k["term"]))
     missing.sort(key=lambda k: (-k["weight"], k["term"]))
     return {
         "score": round(100 * got / total) if total else None,
         "matched": matched,
+        "variants": variants,
         "missing": missing,
         "by_category": {
             cat: (round(100 * have / need) if need else None)
@@ -323,6 +344,7 @@ def summary(scored: dict) -> dict:
     return {
         "score": scored["score"],
         "matched": [m["term"] for m in scored["matched"]],
+        "variants": [m["term"] for m in scored.get("variants", [])],
         "missing": [m["term"] for m in scored["missing"]],
     }
 
@@ -415,7 +437,8 @@ def prompt_block(extracted: dict, limit: int = 30) -> str:
         f"  {name + ':':11s}{', '.join(terms)}" for name, terms in groups.items() if terms
     )
     title = (extracted or {}).get("title") or ""
-    title_line = f"\nThe posting's title is \"{title}\".\n" if title else ""
+    title_line = (f"\nThe posting's exact title is \"{title}\". Wherever a document names "
+                  "the role, it uses this title verbatim.\n" if title else "")
 
     return f"""
 
@@ -428,6 +451,9 @@ Use them the way a careful writer would, not the way a keyword stuffer would:
 - Where a sentence already describes this work, say it in the posting's own
   term rather than a synonym. A screener does not know "LLM evals" and "LLM
   evaluation" are the same thing; a reader does not mind either.
+- Match the posting's exact form, not just its meaning. "Adobe Creative Cloud"
+  and "Adobe Creative Suite" are different strings to a parser. Abbreviate only
+  where the posting abbreviates, and spell out what it spells out.
 - Never add a term the experience bank does not earn, never append a bare
   list of terms, and never repeat a term to raise a count. A term that does
   not fit is a gap, and the ATS report will say so — that is the correct
@@ -435,14 +461,33 @@ Use them the way a careful writer would, not the way a keyword stuffer would:
 """
 
 
-def rephrase_block(candidates: list) -> str:
-    """The missing-but-mentioned terms, for the rephrasing pass."""
-    lines = "\n".join(
-        f"- {k['term']}  ({k['importance']}, {CATEGORY_LABEL[k['category']].lower()})"
-        + (f"; also counts: {', '.join(k['aliases'])}" if k.get("aliases") else "")
-        for k in candidates[:MAX_REPHRASE_TERMS]
-    )
-    return f"TERMS THE RESUME DOES NOT YET USE, WHICH THE BANK MENTIONS:\n{lines}"
+def rephrase_offer(variants: list, candidates: list) -> list:
+    """What the rephrasing pass is given, most valuable first, capped.
+
+    Variants lead: the document already says each of them in another form, so
+    rewording one to the posting's exact words adds no claim at all. Then the
+    missing terms the bank mentions, strongest first.
+    """
+    return (list(variants) + list(candidates))[:MAX_REPHRASE_TERMS]
+
+
+def rephrase_block(offered: list) -> str:
+    """The terms for the rephrasing pass, split by what each one needs."""
+    variants = [k for k in offered if k.get("used")]
+    missing = [k for k in offered if not k.get("used")]
+    parts = []
+    if variants:
+        parts.append(
+            "SAID IN A DIFFERENT FORM — the resume already says these, but not in the "
+            "posting's words, so a search for the posting's term does not find them. "
+            "Reword each to the posting's exact term:\n"
+            + "\n".join(f'- "{k["used"]}" -> "{k["term"]}"  ({k["importance"]})' for k in variants))
+    if missing:
+        parts.append(
+            "NOT YET USED, BUT THE BANK MENTIONS THE WORK:\n"
+            + "\n".join(f"- {k['term']}  ({k['importance']}, "
+                        f"{CATEGORY_LABEL[k['category']].lower()})" for k in missing))
+    return "\n\n".join(parts)
 
 
 # --------------------------------------------------------------------------
@@ -460,19 +505,109 @@ def resume_title(resume_md: str) -> str:
     return ""
 
 
+def core_title(title: str) -> str:
+    """The title before its qualifier: "Senior Product Manager, AI Platform"
+    -> "Senior Product Manager". The part a recruiter actually searches for."""
+    return re.split(r"\s*[,(\[|]|\s[-\u2013\u2014]\s", title or "")[0].strip()
+
+
+def section_text(resume_md: str, kind: str) -> str:
+    """The text under the first heading of this kind, e.g. "summary"."""
+    names = HEADING_KINDS.get(kind, ())
+    out, inside = [], False
+    for line in resume_md.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if inside:
+                break
+            inside = stripped[3:].strip().lower() in names
+            continue
+        if inside:
+            out.append(stripped)
+    return "\n".join(out)
+
+
 def title_match(posting_title: str, resume_md: str) -> dict:
-    """How much of the posting's title the resume's title line shares."""
+    """Does the resume carry the posting's job title, in the posting's words?
+
+    `exact` is true when the title line contains the posting's full title or
+    its core, word for word — the match a recruiter's title search makes.
+    `in_summary` asks the same of the Summary. `shared` and `ratio` keep the
+    looser word-overlap view for context.
+    """
     resume = resume_title(resume_md)
+    core = core_title(posting_title)
+    headline = _norm(resume)
+    full = bool(posting_title) and _exact(posting_title, headline) > 0
+    exact = full or (bool(core) and _exact(core, headline) > 0)
+    in_summary = bool(core) and _exact(core, _norm(section_text(resume_md, "summary"))) > 0
     wanted = [w for w in _norm(posting_title).split() if w not in _STOP]
-    have = set(_norm(resume).split())
+    have = set(headline.split())
     shared = [w for w in wanted if w in have]
     return {
-        "posting": posting_title, "resume": resume, "shared": shared,
+        "posting": posting_title, "core": core, "resume": resume,
+        "exact": exact, "full": full, "in_summary": in_summary, "shared": shared,
         "ratio": (len(shared) / len(wanted)) if wanted else None,
     }
 
 
-REQUIRED_SECTIONS = ("experience", "skills", "education")
+# The headings parsers file sections by, grouped by what they mean. A heading
+# outside every group is one a parser has to guess at, and a guess is often a
+# miscellaneous field nobody searches.
+HEADING_KINDS = {
+    "summary": ("summary", "professional summary", "profile", "professional profile",
+                "career summary"),
+    "skills": ("skills", "technical skills", "core skills", "key skills",
+               "core competencies"),
+    "experience": ("work experience", "experience", "professional experience",
+                   "employment history", "work history", "employment"),
+    "projects": ("projects", "selected projects", "personal projects", "key projects"),
+    "education": ("education", "education and training"),
+    "certifications": ("certifications", "certificates", "licenses and certifications"),
+    "other": ("awards", "honors", "languages", "publications", "volunteer experience",
+              "leadership"),
+}
+REQUIRED_KINDS = ("experience", "skills", "education")
+
+_MONTHS = ("january|february|march|april|may|june|july|august|september|october|"
+           "november|december")
+_MON = "jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec"
+_RANGE = re.compile(r"\s+(?:-|\u2013|\u2014|to)\s+")
+
+
+def date_format(token: str) -> str:
+    """Name the format of one date, e.g. "Month YYYY" for "March 2026"."""
+    t = token.strip().lower().rstrip(".")
+    if t in ("present", "current", "now"):
+        return "present"
+    if re.fullmatch(rf"(?:{_MONTHS}) \d{{4}}", t):
+        return "Month YYYY"
+    if re.fullmatch(rf"(?:{_MON})\.? \d{{4}}", t):
+        return "Mon YYYY"
+    if re.fullmatch(r"\d{1,2}/\d{4}", t):
+        return "MM/YYYY"
+    if re.fullmatch(r"\d{4}-\d{2}", t):
+        return "YYYY-MM"
+    if re.fullmatch(r"\d{4}", t):
+        return "YYYY"
+    if re.fullmatch(rf"(?:{_MONTHS}|{_MON}) '\d{{2}}", t):
+        return "Mon 'YY"
+    return "other"
+
+
+def _formats(date_range: str) -> set:
+    return {date_format(part) for part in _RANGE.split(date_range.strip()) if part.strip()}
+
+
+def decorative_characters(text: str) -> list:
+    """Icons, emoji and other pictographs — the characters a parser drops or
+    garbles. Ordinary punctuation (· — – • |) is not among them."""
+    found = set()
+    for ch in text:
+        if (unicodedata.category(ch) in ("So", "Co", "Cs")
+                or 0x1F000 <= ord(ch) <= 0x1FAFF or ch == "\ufe0f"):
+            found.add(ch)
+    return sorted(found)
 
 
 def format_checks(resume_md: str) -> list:
@@ -483,7 +618,11 @@ def format_checks(resume_md: str) -> list:
     line, a length a one-page parse expects, and bullets that carry numbers.
     """
     lines = [l.strip() for l in resume_md.splitlines()]
-    headings = {l[3:].strip().lower() for l in lines if l.startswith("## ")}
+    headings = [l[3:].strip().lower() for l in lines if l.startswith("## ")]
+    kinds = {kind for heading in headings
+             for kind, names in HEADING_KINDS.items() if heading in names}
+    unknown = [h for h in headings
+               if not any(h in names for names in HEADING_KINDS.values())]
     jobs = [l for l in lines if l.startswith("### ")]
     bullets = [l for l in lines if l.startswith(("- ", "* "))]
     words = len(re.findall(r"[A-Za-z0-9]+", resume_md))
@@ -500,17 +639,44 @@ def format_checks(resume_md: str) -> list:
     contact = next((l for l in header
                     if l and not l.startswith(("#", "**", "- ", "* "))), "")
 
-    missing = [s for s in REQUIRED_SECTIONS if s not in headings]
+    missing = [k for k in REQUIRED_KINDS if k not in kinds]
     undated = [j for j in jobs if "|" not in j]
+
+    # Every role's range in one format, since that is what experience is
+    # computed from. Education may give a bare year where no month is known;
+    # anything else there has to match the roles too.
+    role_formats = set().union(*[_formats(j.rpartition("|")[2]) for j in jobs if "|" in j]) \
+        if jobs else set()
+    role_formats.discard("present")
+    education_formats = set().union(*[_formats(l.rpartition("\u00b7")[2])
+                                       for l in section_text(resume_md, "education").splitlines()
+                                       if "\u00b7" in l]) if "## " in resume_md else set()
+    education_formats -= {"present", "YYYY", "other"}
+    one_format = (len(role_formats) <= 1 and "other" not in role_formats
+                  and (not role_formats or education_formats <= role_formats))
+    glyphs = decorative_characters(resume_md)
+
+    problems = []
+    if missing:
+        problems.append("missing: " + ", ".join(missing))
+    if unknown:
+        problems.append("non-standard: " + ", ".join(f'"{h}"' for h in unknown))
     checks = [
-        {"check": "Standard section headings", "ok": not missing,
-         "detail": "Experience, Skills and Education all present" if not missing
-                   else "missing: " + ", ".join(missing)},
+        {"check": "Standard section headings", "ok": not problems,
+         "detail": "; ".join(problems) if problems
+                   else "all recognised: " + ", ".join(h.title() for h in headings)},
         {"check": "Contact line under the name", "ok": bool(contact),
          "detail": "present" if contact else "none found"},
         {"check": "Dates on every role", "ok": bool(jobs) and not undated,
          "detail": f"{len(jobs)} role(s), all dated" if jobs and not undated
                    else ("no roles found" if not jobs else f"{len(undated)} undated")},
+        {"check": "One date format throughout", "ok": one_format,
+         "detail": (f"{next(iter(role_formats))} on every role" if one_format and role_formats
+                    else "no dated roles" if one_format
+                    else "mixed: " + ", ".join(sorted(role_formats | education_formats)))},
+        {"check": "No icons or emoji", "ok": not glyphs,
+         "detail": "none found" if not glyphs
+                   else ", ".join(f"U+{ord(c):04X}" for c in glyphs)},
         {"check": "Length for a one-page parse", "ok": 300 <= words <= 900,
          "detail": f"{words} words (300-900 expected)"},
         {"check": "Bullets with a number in them", "ok": quantified >= 3,
@@ -534,6 +700,57 @@ def pdf_text_check(pdf_path: str, matched: list) -> dict:
     lost = [m["term"] for m in matched if not _count(m, normalized)]
     return {"ok": not lost, "lost": lost,
             "detail": f"{len(matched) - len(lost)} of {len(matched)} matched terms readable"}
+
+
+_DATE_CELL = re.compile(rf"^(?:(?:{_MONTHS}|{_MON})\.? )?\d{{4}}"
+                        rf"(?:\s*(?:-|\u2013|\u2014|to)\s*(?:(?:(?:{_MONTHS}|{_MON})\.? )?\d{{4}}"
+                        r"|present|current))?$", re.I)
+
+
+def reading_order(pdf_path: str, resume_md: str) -> dict:
+    """Does the PDF read back as one stream, in the order it was written?
+
+    Two tests, because parsers read a page in two ways. Some follow the order
+    the text was drawn in: there, the section headings have to come back in
+    the order the markdown gives them. Others rebuild the page row by row:
+    there, no printed row may hold two blocks of text side by side, because a
+    row-reader fuses them into one line. Two columns fail both — the sidebar's
+    sections jump ahead, and each row joins a line from one column to a line
+    from the other. A right-aligned date on a role's own line is not counted
+    as a second block.
+    """
+    headings = [l.strip()[3:].strip() for l in resume_md.splitlines()
+                if l.strip().startswith("## ")]
+    try:
+        pages = PdfReader(pdf_path).pages
+        stream = "\n".join(page.extract_text() or "" for page in pages)
+        layout = "\n".join(page.extract_text(extraction_mode="layout") or "" for page in pages)
+    except Exception as exc:
+        return {"ok": False, "in_order": False, "fused_rows": 0,
+                "detail": f"could not read the PDF: {exc}"}
+
+    lines = [_norm(line) for line in stream.splitlines()]
+    positions = [next((i for i, line in enumerate(lines) if line == _norm(h)), None)
+                 for h in headings]
+    in_order = all(p is not None for p in positions) and positions == sorted(positions)
+
+    fused = 0
+    for row in layout.splitlines():
+        cells = [c for c in re.split(r"\s{3,}", row.strip()) if c]
+        if len(cells) > 1 and not (len(cells) == 2 and _DATE_CELL.match(cells[1].strip())):
+            fused += 1
+
+    ok = in_order and fused == 0
+    if ok:
+        detail = "sections read back in order, one block per line"
+    else:
+        parts = []
+        if not in_order:
+            parts.append("sections read back out of order")
+        if fused:
+            parts.append(f"{fused} printed line(s) join two blocks side by side")
+        detail = "; ".join(parts)
+    return {"ok": ok, "in_order": in_order, "fused_rows": fused, "detail": detail}
 
 
 # --------------------------------------------------------------------------
@@ -582,7 +799,8 @@ def _rephrasing_note(candidates: list, pass_info: dict, target: int) -> str:
 
 def report(extracted: dict, resume: dict, letter: dict, target: int,
            candidates: list, gaps: list, checks: list, title: dict,
-           pdf: dict, pass_info: dict = None) -> str:
+           pdf: dict, pass_info: dict = None, order: dict = None,
+           designed: dict = None) -> str:
     """The markdown behind ats_report.pdf."""
     keywords = extracted.get("keywords") or []
     if not keywords:
@@ -596,10 +814,11 @@ def report(extracted: dict, resume: dict, letter: dict, target: int,
         + (f' for "{extracted.get("title")}"' if extracted.get("title") else "")
         + f". Target for a rephrasing pass: {target}.",
         "",
-        "Score = weighted share of the posting's terms the document contains. Weight is "
-        "importance (required 3, preferred 2, mentioned 1) times category (soft skills "
-        "count half). A match is the exact term or a listed alias, singular or plural. "
-        "No fuzzier than that, because a screener is not fuzzier than that either.",
+        "Score = weighted share of the posting's terms the document contains, in the "
+        "posting's own words. Weight is importance (required 3, preferred 2, mentioned 1) "
+        "times category (soft skills count half). A match is the exact term, singular or "
+        "plural. Saying the same thing another way does not count, because a recruiter "
+        "searches for the posting's words and a synonym is not found.",
         "",
         f"## Resume — {resume['score']} / 100",
         "",
@@ -610,10 +829,27 @@ def report(extracted: dict, resume: dict, letter: dict, target: int,
         pct = resume["by_category"].get(cat)
         if pct is not None:
             lines.append(f"| {CATEGORY_LABEL[cat]} | {pct}% |")
+    variants = resume.get("variants", [])
+    used = len(resume["matched"])
     lines += [
         "",
-        f"**Matched ({len(resume['matched'])}):** {_terms(resume['matched'], with_counts=True)}",
+        f"Posting terms used in the posting's own words: {used} of {len(keywords)}.",
         "",
+        f"**Matched ({used}):** {_terms(resume['matched'], with_counts=True)}",
+        "",
+    ]
+    if variants:
+        lines += [
+            f"**Said in a different form ({len(variants)}):** "
+            + ", ".join(f'"{k["used"]}" where the posting says **{k["term"]}** '
+                        f'({k["importance"]})' for k in variants),
+            "",
+            "The resume already says these, so a search for the posting's term is all that "
+            "misses them. Rewording each to the posting's exact words adds no claim — these "
+            "are the safest edits in this report.",
+            "",
+        ]
+    lines += [
         f"**Not used, but the bank mentions the work ({len(candidates)}):** {_terms(candidates)}",
         "",
     ]
@@ -642,17 +878,24 @@ def report(extracted: dict, resume: dict, letter: dict, target: int,
             "",
         ]
 
-    ratio = title["ratio"]
-    lines += [
-        "### Title line",
-        "",
-        (f'Posting: "{title["posting"]}" · Resume: "{title["resume"] or "(none)"}" · '
-         + (f"{len(title['shared'])} shared word(s)" if ratio is not None else "no posting title")),
-        "",
-    ]
-    if ratio is not None and ratio < 0.5:
-        lines += ["A screener often filters on the title first. If the bank supports the "
-                  "posting's title honestly, use its words on the title line.", ""]
+    lines += ["### Title line", ""]
+    if not title.get("posting"):
+        lines += ["No posting title was extracted, so the title line was not checked.", ""]
+    else:
+        lines += [
+            f'Posting: "{title["posting"]}" · Resume: "{title.get("resume") or "(none)"}"',
+            "",
+            ("The title line carries the posting's title word for word"
+             + (" (in full)." if title.get("full") else f' (its core, "{title.get("core")}").')
+             if title.get("exact") else
+             "The title line does not carry the posting's title word for word. Recruiters "
+             "find candidates by searching for the title, and that search is literal: if "
+             "the bank supports the title honestly, use it exactly."),
+            "",
+            ("The Summary repeats it." if title.get("in_summary")
+             else "The Summary does not repeat it; its first sentence is the place to."),
+            "",
+        ]
 
     lines += ["### Formatting", "", "| Check | Result | Detail |", "|---|---|---|"]
     for check in checks:
@@ -667,6 +910,22 @@ def report(extracted: dict, resume: dict, letter: dict, target: int,
         f" ({pdf['detail']})",
         "",
     ]
+    if order:
+        lines += [
+            ("Upload copy: " + order["detail"] + "." if order["ok"]
+             else f"Upload copy: {order['detail']}. A parser would read this page "
+                  "scrambled; check the layout before uploading it."),
+            "",
+        ]
+    if designed:
+        lines += [
+            ("Designed copy: " + designed["detail"] + "." if designed["ok"]
+             else f"Designed copy (two columns): {designed['detail']}. That is what a "
+                  "parser makes of two columns, which is why this copy is for people — "
+                  "email, referrals, print — and the single-column PDF or the .docx is "
+                  "the one to upload."),
+            "",
+        ]
 
     if letter and letter.get("score") is not None:
         lines += [

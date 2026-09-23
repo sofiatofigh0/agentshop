@@ -40,7 +40,7 @@ from datetime import datetime
 
 import anthropic
 
-from documents import fit_pdf, page_count, write_pdf
+from documents import fit_pdf, page_count, write_pdf, write_resume_docx
 
 import ats
 import lessons
@@ -63,6 +63,13 @@ SOURCES_FILE = "sources.json"
 # edit can be re-scored without another model call.
 ATS_FILE = "ats.json"
 ATS_REPORT = "ats_report.pdf"
+
+# The resume is one markdown source rendered three ways (see documents.py).
+# tailored_resume.pdf is the single-column upload copy and the one sources.json
+# names; the other two are always rebuilt from the same text beside it.
+RESUME_PDF = "tailored_resume.pdf"
+RESUME_DOCX = "tailored_resume.docx"
+RESUME_DESIGNED = "resume_designed.pdf"
 
 
 def _generation_facts() -> str:
@@ -326,23 +333,24 @@ Write a resume for this specific job, guided by the evidence map you are given.
 Rows marked STRONG earn the most space and the highest position; rows marked
 NONE must not be papered over.
 
-Emit EXACTLY this structure. The renderer routes these sections into a
-two-column template, so the headings and the order of the first three lines
-matter:
+Emit EXACTLY this structure. It is set in one column, in this order, as the
+copy uploaded to applicant tracking systems — a screening system reads the page
+as one stream of text and files each section by its heading, so the headings,
+their order and the first three lines all matter. The same text is also set as
+a two-column designed copy for people.
 
 # <full name>
-**<professional title, aimed at this role — at most five words and 42
-characters, e.g. "AI Product Manager" or "Platform Product Manager". It sits
-beside the contact block and must not wrap.>**
+**<the posting's exact job title — see "The title line" below>**
 <one contact line, items separated by " · ">
 
-## Profile
-<three or four lines of prose, aimed at this role>
+## Summary
+<three or four lines of prose, aimed at this role; the first sentence uses the
+title line's title, verbatim>
 
 ## Skills
 - <six to nine short skill phrases, most relevant first>
 
-## Experience
+## Work Experience
 ### <Role> — <Company> | <dates>
 <optional single line describing the employer or scope>
 - **<project, two or three words>** — <what was done, and what came of it>
@@ -351,16 +359,45 @@ beside the contact block and must not wrap.>**
 ### <Role> — <Company> | <dates>
 - <a plain bullet, where the work was not one discrete project>
 
-## Selected Projects
+## Projects
 - **<name>** — <one line>
 
 ## Education
 **<credential>**
 <institution> · <dates>
 
+The title line:
+- It is the posting's own job title, word for word. If the posting says
+  "Senior Product Manager", the line says "Senior Product Manager" — not
+  "Product Lead", not "AI Product Manager", not a creative variant. Recruiters
+  find candidates by searching the tracking system for the title, and that
+  match is literal: a synonym is simply not found.
+- It fits on one line at 42 characters. When the full title is longer, keep
+  its core — the words before the first comma, dash or bracket — exactly as
+  the posting writes them ("Senior Product Manager, Generative AI Platform
+  Experiences" becomes "Senior Product Manager"). Shorten; never paraphrase.
+- It names the role applied for, not a past title, so it may match no title
+  in the bank. It may still not overstate seniority. If the posting's title
+  claims a level the bank and the candidate's positioning do not support —
+  Director, Head of, VP, Principal, Staff, Group, or a Lead who manages other
+  PMs — replace only that level with the highest one they do support and keep
+  the posting's other words ("Director of Product, Payments" becomes "Senior
+  Product Manager, Payments").
+- The Summary's first sentence repeats the same title in a true sentence,
+  because some systems weight the summary as heavily as the headline.
+
 Rules for that structure:
 - The contact line must include the portfolio URL and, when one is set, its
   password, since a gated link without the password is worse than no link.
+  Write every URL as plain text (sofia-tofigh.netlify.app), never as a
+  markdown link: a parser stores the text it can read, not the link behind a
+  label.
+- Use exactly the section headings shown — Summary, Skills, Work Experience,
+  Projects, Education. A parser files each section by its heading; one it does
+  not recognise lands in a field nobody searches.
+- No icons, emoji, symbols or decorative characters anywhere — no phone or
+  envelope glyphs, stars, checkmarks or arrows. To a parser they are noise,
+  and next to contact details they can garble the details themselves.
 - Open each Experience bullet with the project it is about, in two or three
   words, bold, then an em dash: "**Advisor summarization** — Shipped an LLM
   pipeline that...". A reviewer scans the left edge of the bullets before
@@ -380,12 +417,18 @@ Rules for that structure:
   that was not a project reads as padding and tells the reviewer nothing.
 - Roles go newest first UNLESS a less recent role is markedly more relevant to
   this job, in which case lead with that one.
-- The pipe before the dates is required — it is how the renderer right-aligns
-  them. Keep every date exactly as the bank states it.
-- Profile, Skills and Education render in the narrow left column; Experience and
-  Selected Projects render in the wide right column. Keep left-column content
-  short so it does not outrun the right.
-- Omit Selected Projects entirely if nothing there answers a requirement.
+- The pipe before the dates is required — it is how the renderer places
+  them. Keep every date exactly as the bank states it, which gives one format
+  throughout: Month Year - Month Year. Never mix formats ("Jan 2020",
+  "2020-01", "January '20") — screening systems compute total experience from
+  these ranges, and mixed formats make them miscount.
+- In Education, list every entry the bank marks `include: "always"`, and an
+  entry marked `include: "when_relevant"` only when its `use_when` genuinely
+  fits this posting. Newest first. Where the bank gives only a year, write
+  only the year; never invent a month.
+- Keep Summary and Skills short: the designed copy sets Summary, Skills and
+  Education in a narrow column that must not outrun the one beside it.
+- Omit Projects entirely if nothing there answers a requirement.
 - No other top-level sections.
 
 This is a document the candidate submits to an employer. It must contain ONLY
@@ -410,10 +453,12 @@ already describes work the posting asks for, it describes it in the posting's
 own terms. A screening system matches exact terms; to it, a synonym scores
 zero. To the reader, the posting's word is usually the clearer one anyway.
 
-You are given the resume and a short list of the posting's terms it does not
-yet contain. For each term, look for a sentence, bullet, profile line or skills
-entry that already says this thing in other words, and reword it to use the
-term — changing the sentence's structure if that is what it takes to read
+You are given the resume and a short list of the posting's terms, in two
+groups. Terms SAID IN A DIFFERENT FORM are already on the page in other words
+— the list names the words used — so reword that spot to the posting's exact
+term. For terms NOT YET USED, look for a sentence, bullet, summary line or
+skills entry that already says this thing in other words, and reword it to use
+the term — changing the sentence's structure if that is what it takes to read
 naturally.
 
 What you may change: the wording and structure of sentences that are there.
@@ -440,9 +485,9 @@ no commentary.
 """
 
 
-def rephrase_resume(context: str, draft: str, candidates: list) -> tuple:
+def rephrase_resume(context: str, draft: str, offered: list) -> tuple:
     """Reword the draft toward the posting's terms — never add to it."""
-    user = f"DRAFT RESUME:\n{draft}\n\n{ats.rephrase_block(candidates)}"
+    user = f"DRAFT RESUME:\n{draft}\n\n{ats.rephrase_block(offered)}"
     return _call("phrasing", PHRASING_PROMPT, user, context)
 
 
@@ -461,6 +506,16 @@ SUPPORTED           the bank states this, or it is a fair rewording, or it is
                     listed under that project's `framing`
 PARTIALLY SUPPORTED the bank hints at it but the draft goes further
 UNSUPPORTED         the bank does not contain this at all
+
+Two kinds of title appear, and they are judged differently:
+- The bold line directly under the name is the title of the role being applied
+  for, and the Summary's first sentence may repeat it. It is not a claim about
+  any past position, so do not require it to match a title in the bank. Judge
+  it on one thing: whether it implies more seniority than the bank supports
+  (Director, Head of, VP, Principal, Staff, Group, or managing other PMs). If
+  it does not, it is SUPPORTED.
+- The title in each Work Experience role line is a claim about that job, and
+  must match the bank's official title for it exactly.
 
 Treat these as UNSUPPORTED even though the words appear in the bank:
 - anything whose `source` is `needs_validation`
@@ -633,6 +688,37 @@ def slugify(company: str, role: str) -> str:
     return f"{datetime.now():%Y-%m-%d}-{slug or 'application'}"
 
 
+def _atomic(path: str, render) -> None:
+    """Render to a scratch file and move it into place only once it exists, so
+    a render that fails leaves the previous file intact."""
+    draft = path + ".rendering"
+    try:
+        render(draft)
+        os.replace(draft, path)
+    finally:
+        if os.path.exists(draft):
+            os.remove(draft)
+
+
+def render_resume_companions(markdown_text: str, run_dir: str, pt: float) -> dict:
+    """Write the Word copy and the two-column designed copy of a resume.
+
+    Called wherever the upload PDF is rendered — at generation and after every
+    edit — so the three copies can never describe different resumes. `pt` is
+    the size the upload PDF fitted at, which the Word copy reuses. Returns
+    {"designed_pages": n, "designed_pt": pt}.
+    """
+    _atomic(os.path.join(run_dir, RESUME_DOCX),
+            lambda draft: write_resume_docx(markdown_text, draft, pt or 10.0))
+    fitted = {}
+
+    def designed(draft):
+        fitted["pages"], fitted["pt"] = fit_pdf(markdown_text, draft, "resume_designed")
+
+    _atomic(os.path.join(run_dir, RESUME_DESIGNED), designed)
+    return {"designed_pages": fitted["pages"], "designed_pt": fitted["pt"]}
+
+
 def render_document(markdown_text: str, path: str, style: str) -> tuple:
     """Render one document to its final PDF. Returns (pages, body_pt).
 
@@ -666,9 +752,11 @@ def write_ats_report(run_dir: str, data: dict, resume_md: str, letter_md: str) -
             data, resume_scored, letter_scored, data.get("target"),
             candidates, real_gaps, ats.format_checks(resume_md),
             ats.title_match(data.get("title", ""), resume_md),
-            ats.pdf_text_check(os.path.join(run_dir, "tailored_resume.pdf"),
-                               resume_scored["matched"]),
+            ats.pdf_text_check(os.path.join(run_dir, RESUME_PDF), resume_scored["matched"]),
             data.get("rephrasing_pass"),
+            order=ats.reading_order(os.path.join(run_dir, RESUME_PDF), resume_md),
+            designed=(ats.reading_order(os.path.join(run_dir, RESUME_DESIGNED), resume_md)
+                      if os.path.isfile(os.path.join(run_dir, RESUME_DESIGNED)) else None),
         )
         scores["resume"] = resume_scored["score"]
         scores["cover_letter"] = letter_scored["score"] if letter_scored else None
@@ -790,11 +878,12 @@ def generate_application_package(
         if keywords:
             scored = ats.score(keywords, draft)
             candidates, _ = ats.bank_supported(scored["missing"], BANK_PROSE)
-            if scored["score"] < target and candidates:
-                offered = candidates[:ats.MAX_REPHRASE_TERMS]
+            offered = ats.rephrase_offer(scored["variants"], candidates)
+            if scored["score"] < target and offered:
                 progress(f"ATS: draft resume scores {scored['score']}/100 — rewording for "
-                         f"{len(offered)} term(s) the bank mentions...")
-                reworded = run(rephrase_resume(context, draft, candidates))
+                         f"{len(offered)} term(s): {len(scored['variants'])} said in another "
+                         "form, the rest mentioned in the bank...")
+                reworded = run(rephrase_resume(context, draft, offered))
                 rescored = ats.score(keywords, reworded)
                 kept = rescored["score"] > scored["score"]
                 # Which terms were put to it, not just how many: the report
@@ -839,7 +928,7 @@ def generate_application_package(
     # two documents an employer receives get document typography; the internal
     # working files get a denser report layout.
     outputs = [
-        ("resume", "tailored_resume.pdf", resume, "resume"),
+        ("resume", RESUME_PDF, resume, "resume"),
         ("cover_letter", "cover_letter.pdf", cover_letter, "letter"),
         ("evidence_map", "evidence_map.pdf", evidence_map, "report"),
         ("factuality_review", "factuality_review.pdf", review, "report"),
@@ -856,6 +945,12 @@ def generate_application_package(
                 progress(f"{name}: {pages} pages even at {pt}pt — too much content to fit")
             else:
                 progress(f"{name}: fitted to one page at {pt}pt")
+        if style == "resume":
+            extra = render_resume_companions(body, run_dir, pt)
+            files["resume_docx"] = os.path.join(run_dir, RESUME_DOCX)
+            files["resume_designed"] = os.path.join(run_dir, RESUME_DESIGNED)
+            progress(f"{RESUME_DOCX}: written at {pt}pt; {RESUME_DESIGNED}: "
+                     f"{extra['designed_pages']} page(s) at {extra['designed_pt']}pt")
         files[key] = path
 
     # The ATS report: scores on the final text, the checks a parser cares

@@ -6,13 +6,23 @@ those separate matters — the writing prompts stay about content, and how a
 resume looks is a styling decision made once here rather than negotiated with a
 model on every run.
 
-Two stylesheets:
+The resume is rendered three ways from the same markdown:
 
-    DOCUMENT_CSS  resume and cover letter — the things an employer receives.
-                  Typeset to look like a professional document, not a rendered
-                  README.
-    REPORT_CSS    evidence map, factuality review, strategy — internal working
-                  documents. Denser, tables allowed to be wide.
+    ATS_CSS       tailored_resume.pdf — one column, no tables, bullets as text.
+                  The copy to upload. A screening system reads a page as one
+                  stream, and this layout is that stream.
+    write_resume_docx
+                  tailored_resume.docx — the same single column as a Word
+                  document. The format every applicant tracking system parses
+                  without edge cases; upload this unless a form asks for PDF.
+    DOCUMENT_CSS  resume_designed.pdf — the two-column design. For people:
+                  a referral, an email to a hiring manager, a printout. Not for
+                  upload, because a parser reads two columns as one and fuses
+                  them (tests/test_documents.py shows it on this very layout).
+
+Plus LETTER_CSS for the cover letter, and REPORT_CSS for the internal working
+documents — evidence map, factuality review, strategy, ATS report — which are
+denser and allowed wide tables.
 """
 
 import re
@@ -114,6 +124,45 @@ li::marker {{ color: {INK}; }}
 """
 
 
+def ATS_CSS(pt, margin):
+    """The upload copy: one column, in document order, nothing a parser can
+    misread.
+
+    Every rule here is about what survives text extraction. No tables, no
+    floats and no columns, so the reading order is the visual order. Bullets
+    are text rather than list markers, because a marker is drawn separately
+    from its line and extracts as a stray character somewhere else on the
+    page. Headings keep the case they were written in. Contact details sit in
+    the body — nothing uses the page margins, which some parsers skip.
+    """
+    return f"""
+@page {{ size: Letter; margin: {margin}; }}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; color: #111111;
+       font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+       font-size: {pt}pt; line-height: 1.38; }}
+a {{ color: inherit; text-decoration: none; }}
+strong {{ font-weight: 700; }}
+
+.name {{ font-size: 2.1em; font-weight: 700; margin: 0; }}
+.title {{ font-size: 1.12em; font-weight: 700; margin: 0.1em 0 0.15em; }}
+.contact {{ margin: 0 0 0.3em; }}
+
+h2 {{ font-size: 1.05em; font-weight: 700; margin: 0.95em 0 0.4em;
+     padding-bottom: 0.15em; border-bottom: 0.8pt solid #111111;
+     page-break-after: avoid; }}
+
+.job {{ margin-bottom: 0.7em; page-break-inside: avoid; }}
+.jobhead {{ margin: 0 0 0.2em; }}
+.jobdate {{ font-weight: 400; }}
+.jobnote {{ font-style: italic; margin: 0 0 0.2em; }}
+
+p {{ margin: 0 0 0.35em; }}
+ul {{ list-style: none; margin: 0; padding: 0; }}
+li {{ margin: 0 0 0.22em; padding-left: 1em; text-indent: -0.75em; }}
+"""
+
+
 def LETTER_CSS(pt, margin):
     """Cover letter styling at a given body size."""
     return BASE + f"""
@@ -154,15 +203,19 @@ code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 7.4pt; }
 
 # Density ladders, loosest first. fit_pdf walks down until the document lands
 # on one page. It never removes content — it only tightens the setting.
+_RESUME_LADDER = [(9.6, "0.55in 0.6in"), (9.3, "0.5in 0.55in"), (9.0, "0.5in 0.5in"),
+                  (8.7, "0.45in 0.5in"), (8.4, "0.42in 0.45in"), (8.1, "0.4in 0.45in"),
+                  (7.8, "0.38in 0.42in"), (7.5, "0.35in 0.4in")]
+
 LADDERS = {
-    "resume": [(9.6, "0.55in 0.6in"), (9.3, "0.5in 0.55in"), (9.0, "0.5in 0.5in"),
-               (8.7, "0.45in 0.5in"), (8.4, "0.42in 0.45in"), (8.1, "0.4in 0.45in"),
-               (7.8, "0.38in 0.42in"), (7.5, "0.35in 0.4in")],
+    "resume": _RESUME_LADDER,
+    "resume_designed": _RESUME_LADDER,
     "letter": [(10.8, "0.9in 0.95in"), (10.5, "0.85in 0.9in"), (10.2, "0.8in 0.85in"),
                (9.9, "0.75in 0.8in"), (9.6, "0.7in 0.75in"), (9.3, "0.65in 0.7in"),
                (9.0, "0.6in 0.7in")],
 }
-BUILDERS = {"resume": DOCUMENT_CSS, "letter": LETTER_CSS}
+BUILDERS = {"resume": lambda pt, margin: ATS_CSS(pt, margin),
+            "resume_designed": DOCUMENT_CSS, "letter": LETTER_CSS}
 
 
 # --------------------------------------------------------------------------
@@ -174,10 +227,24 @@ BUILDERS = {"resume": DOCUMENT_CSS, "letter": LETTER_CSS}
 # stays a decision made once, in code.
 # --------------------------------------------------------------------------
 
-def _inline(text: str) -> str:
-    """Escape, then honour **bold** and [label](href)."""
+def _visible_url(href: str) -> str:
+    """A URL as a reader would type it: no scheme, no trailing slash."""
+    return re.sub(r"^https?://(www\.)?", "", href).rstrip("/")
+
+
+def _inline(text: str, show_urls: bool = False) -> str:
+    """Escape, then honour **bold** and [label](href).
+
+    With `show_urls`, a link's visible text is its address rather than its
+    label. A parser reads the text, not the link behind it, so a portfolio
+    link labelled "portfolio" gives it nothing to store.
+    """
     out = (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-    out = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', out)
+    if show_urls:
+        out = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
+                     lambda m: f'<a href="{m.group(2)}">{_visible_url(m.group(2))}</a>', out)
+    else:
+        out = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', out)
     return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
 
 
@@ -278,6 +345,143 @@ def render_resume_html(md: str) -> str:
     )
 
 
+# --------------------------------------------------------------------------
+# Resume markdown -> single column, for upload
+# --------------------------------------------------------------------------
+
+# Sections whose list is a list of terms rather than of achievements. In one
+# column a term per line wastes the page, and a comma-separated line is also
+# the form skills parsers split most reliably.
+INLINE_LIST_SECTIONS = {"skills", "technical skills", "core skills", "key skills"}
+
+
+def _ats_blocks(blocks: list, inline_lists: bool) -> str:
+    html = []
+    for block in blocks:
+        if block["kind"] == "job":
+            dates = (f'<span class="jobdate"> | {_ats_inline(block["dates"])}</span>'
+                     if block["dates"] else "")
+            head = f'<p class="jobhead"><strong>{_ats_inline(block["title"])}</strong>{dates}</p>'
+            note = f'<p class="jobnote">{_ats_inline(block["note"])}</p>' if block["note"] else ""
+            items = "".join(f"<li>\u2022 {_ats_inline(i)}</li>" for i in block["items"])
+            html.append(f'<div class="job">{head}{note}'
+                        + (f"<ul>{items}</ul>" if items else "") + "</div>")
+        elif block["kind"] == "list" and inline_lists:
+            html.append(f"<p>{', '.join(_ats_inline(i) for i in block['items'])}</p>")
+        elif block["kind"] == "list":
+            html.append("<ul>" + "".join(f"<li>\u2022 {_ats_inline(i)}</li>"
+                                         for i in block["items"]) + "</ul>")
+        else:
+            html.append(f"<p>{_ats_inline(block['text'])}</p>")
+    return "".join(html)
+
+
+def _ats_inline(text: str) -> str:
+    return _inline(text, show_urls=True)
+
+
+def render_resume_ats_html(md: str) -> str:
+    """Build the single-column page, sections in the order they were written."""
+    doc = _parse_resume(md)
+    sections = "".join(
+        f'<h2>{_ats_inline(s["heading"])}</h2>'
+        + _ats_blocks(s["blocks"], s["heading"].strip().lower() in INLINE_LIST_SECTIONS)
+        for s in doc["sections"]
+    )
+    title = f'<p class="title">{_ats_inline(doc["title"])}</p>' if doc["title"] else ""
+    contact = f'<p class="contact">{_ats_inline(doc["contact"])}</p>' if doc["contact"] else ""
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'></head><body>"
+        f'<h1 class="name">{_ats_inline(doc["name"])}</h1>{title}{contact}{sections}'
+        "</body></html>"
+    )
+
+
+def _plain_runs(paragraph, text: str, bold: bool = False, italic: bool = False) -> None:
+    """Add markdown text to a Word paragraph as runs: **bold** kept, a link
+    shown as its address (see _inline), everything else as written."""
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", lambda m: _visible_url(m.group(2)), text)
+    for i, piece in enumerate(re.split(r"\*\*(.+?)\*\*", text)):
+        if not piece:
+            continue
+        run = paragraph.add_run(piece)
+        run.bold = bold or (i % 2 == 1)
+        run.italic = italic
+
+
+def write_resume_docx(md: str, path: str, pt: float = 10.0) -> None:
+    """The single-column resume as a Word document.
+
+    Built from the same parse as the PDF, in the same order. Everything is body
+    text: the section header and footer stay empty, because a parser that
+    skips them would lose whatever was put there. No tables and no text boxes.
+    Role lines put the dates after a right-aligned tab, which reads as one line
+    of text to a parser and as a right-aligned date to a person.
+
+    `pt` is the size the PDF fitted at, so the two copies match. Word lays the
+    page out itself when it opens the file, so page count is not measured here.
+    """
+    from docx import Document
+    from docx.enum.text import WD_TAB_ALIGNMENT
+    from docx.shared import Inches, Pt, RGBColor
+
+    doc = _parse_resume(md)
+    word = Document()
+    section = word.sections[0]
+    section.page_width, section.page_height = Inches(8.5), Inches(11)
+    for side in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+        setattr(section, side, Inches(0.5))
+    usable = section.page_width - section.left_margin - section.right_margin
+
+    normal = word.styles["Normal"]
+    normal.font.name = "Arial"
+    normal.font.size = Pt(pt)
+    normal.paragraph_format.space_after = Pt(pt * 0.3)
+    normal.paragraph_format.space_before = Pt(0)
+
+    heading = word.styles["Heading 1"]
+    heading.font.name = "Arial"
+    heading.font.size = Pt(pt * 1.1)
+    heading.font.bold = True
+    heading.font.color.rgb = RGBColor(0x11, 0x11, 0x11)
+    heading.paragraph_format.space_before = Pt(pt * 0.9)
+    heading.paragraph_format.space_after = Pt(pt * 0.3)
+
+    name = word.add_paragraph()
+    run = name.add_run(doc["name"])
+    run.bold = True
+    run.font.size = Pt(pt * 2.0)
+    if doc["title"]:
+        _plain_runs(word.add_paragraph(), doc["title"].strip("*"), bold=True)
+    if doc["contact"]:
+        _plain_runs(word.add_paragraph(), doc["contact"])
+
+    for part in doc["sections"]:
+        word.add_heading(part["heading"], level=1)
+        inline_lists = part["heading"].strip().lower() in INLINE_LIST_SECTIONS
+        for block in part["blocks"]:
+            if block["kind"] == "job":
+                head = word.add_paragraph()
+                head.paragraph_format.tab_stops.add_tab_stop(usable, WD_TAB_ALIGNMENT.RIGHT)
+                head.paragraph_format.keep_with_next = True
+                _plain_runs(head, block["title"], bold=True)
+                if block["dates"]:
+                    head.add_run("\t" + block["dates"])
+                if block["note"]:
+                    _plain_runs(word.add_paragraph(), block["note"], italic=True)
+                for item in block["items"]:
+                    _plain_runs(word.add_paragraph(style="List Bullet"), item)
+            elif block["kind"] == "list" and inline_lists:
+                _plain_runs(word.add_paragraph(), ", ".join(block["items"]))
+            elif block["kind"] == "list":
+                for item in block["items"]:
+                    _plain_runs(word.add_paragraph(style="List Bullet"), item)
+            else:
+                _plain_runs(word.add_paragraph(), block["text"])
+
+    word.save(path)
+
+
 def _html(markdown_text: str) -> str:
     body = markdown.markdown(
         markdown_text,
@@ -299,7 +503,8 @@ def fit_pdf(markdown_text, path, style, max_pages=1):
     Returns (pages, body_pt). Content is never altered — if even the tightest
     setting overruns, the document is left there and the caller is told.
     """
-    html = render_resume_html(markdown_text) if style == "resume" else _html(markdown_text)
+    builders = {"resume": render_resume_ats_html, "resume_designed": render_resume_html}
+    html = builders.get(style, _html)(markdown_text)
     ladder, build = LADDERS[style], BUILDERS[style]
     for pt, margin in ladder:
         HTML(string=html).write_pdf(path, stylesheets=[CSS(string=build(pt, margin))])

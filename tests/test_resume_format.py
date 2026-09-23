@@ -18,7 +18,7 @@ import unittest
 
 import ats
 import documents
-from application_generator import PHRASING_PROMPT, RESUME_PROMPT
+from application_generator import FACTUALITY_PROMPT, PHRASING_PROMPT, RESUME_PROMPT
 
 LABELLED = """# Jane Example
 **AI Product Manager**
@@ -63,6 +63,53 @@ class PromptContract(unittest.TestCase):
     def test_the_rephrasing_pass_may_not_use_a_label_as_a_keyword_slot(self):
         self.assertIn("slot for a keyword", PHRASING_PROMPT)
         self.assertIn("do not add one", PHRASING_PROMPT)
+
+
+def flat(text):
+    """Whitespace-insensitive, so re-wrapping a prompt does not break its contract."""
+    return " ".join(text.split())
+
+
+RESUME = flat(RESUME_PROMPT)
+FACTUALITY = flat(FACTUALITY_PROMPT)
+
+
+class AtsRules(unittest.TestCase):
+    """The parser-facing rules the resume prompt now carries."""
+
+    def test_standard_headings_in_the_template(self):
+        for heading in ("## Summary", "## Skills", "## Work Experience", "## Projects",
+                        "## Education"):
+            self.assertIn(heading, RESUME_PROMPT)
+        for retired in ("## Profile", "## Experience\n", "## Selected Projects"):
+            self.assertNotIn(retired, RESUME_PROMPT)
+
+    def test_the_title_line_is_the_posting_s_exact_title(self):
+        self.assertIn("**<the posting's exact job title", RESUME)
+        self.assertIn("word for word", RESUME)
+        self.assertIn("Shorten; never paraphrase", RESUME)
+
+    def test_the_title_may_not_overstate_seniority(self):
+        self.assertIn("may still not overstate seniority", RESUME)
+        self.assertIn('"Director of Product, Payments" becomes "Senior Product Manager, Payments"',
+                      RESUME)
+
+    def test_the_summary_repeats_the_title(self):
+        self.assertIn("The Summary's first sentence repeats the same title", RESUME)
+
+    def test_the_reviewer_judges_the_headline_on_seniority_only(self):
+        """Otherwise the factuality pass would revise the exact title away."""
+        self.assertIn("is the title of the role being applied for", FACTUALITY)
+        self.assertIn("do not require it to match a title in the bank", FACTUALITY)
+        self.assertIn("must match the bank's official title for it exactly", FACTUALITY)
+
+    def test_dates_icons_urls_and_education_flags(self):
+        self.assertIn("Month Year - Month Year", RESUME)
+        self.assertIn("No icons, emoji, symbols or decorative characters", RESUME)
+        self.assertIn("never as a markdown link", RESUME)
+        self.assertIn('include: "always"', RESUME)
+        self.assertIn('include: "when_relevant"', RESUME)
+        self.assertIn("never invent a month", RESUME)
 
 
 class Rendering(unittest.TestCase):

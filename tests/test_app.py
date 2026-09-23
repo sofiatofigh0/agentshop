@@ -125,6 +125,34 @@ class EditRescores(unittest.TestCase):
         response = self.client.put("/api/document/../etc/resume", json={"markdown": "x"})
         self.assertIn(response.status_code, (400, 404))
 
+    def test_a_resume_edit_rebuilds_the_word_and_designed_copies(self):
+        """Three copies from one text: none may describe the resume as it was."""
+        from docx import Document
+        edited = RESUME.replace("Owned the roadmap", "Owned the product roadmap")
+        response = self.client.put(f"/api/document/{self.folder}/resume",
+                                   json={"markdown": edited, "note": ""})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertIsNone(response.get_json()["warning"])
+        docx = os.path.join(self.run_dir, "tailored_resume.docx")
+        self.assertTrue(os.path.isfile(os.path.join(self.run_dir, "resume_designed.pdf")))
+        text = "\n".join(p.text for p in Document(docx).paragraphs)
+        self.assertIn("Owned the product roadmap", text)
+
+    def test_a_companion_failure_is_a_warning_not_a_failed_save(self):
+        with mock.patch.object(server, "render_resume_companions",
+                               side_effect=RuntimeError("docx broke")):
+            response = self.client.put(f"/api/document/{self.folder}/resume",
+                                       json={"markdown": RESUME + "\n", "note": ""})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("could not be rebuilt", response.get_json()["warning"])
+
+    def test_history_lists_the_word_copy(self):
+        self.client.put(f"/api/document/{self.folder}/resume",
+                        json={"markdown": RESUME + "\n", "note": ""})
+        files = self.client.get("/api/history").get_json()[0]["files"]
+        self.assertIn("tailored_resume.docx", files)
+        self.assertIn("resume_designed.pdf", files)
+
     def test_a_saved_edit_is_never_reported_as_a_failed_one(self):
         """The save happens before the scoring; only the score can be lost."""
         edited = RESUME.replace("Owned the roadmap", "Owned the product roadmap")
@@ -141,11 +169,13 @@ class EditRescores(unittest.TestCase):
         response = self.client.put(f"/api/document/{self.folder}/cover_letter",
                                    json={"markdown": LETTER + "\nI write SQL.\n", "note": ""})
         self.assertEqual(response.status_code, 200, response.get_json())
-        self.assertEqual(response.get_json()["ats"], 100)   # roadmap and sql
+        # "sql" is used exactly; "the roadmap" is only the alias of "product
+        # roadmap", which is a variant and does not count toward the score.
+        self.assertEqual(response.get_json()["ats"], 50)
         with open(os.path.join(self.run_dir, "run.json")) as handle:
             meta = json.load(handle)
-        self.assertEqual(meta["ats"]["cover_letter"], 100)
-        self.assertEqual(meta["ats"]["resume"], 50)   # unchanged, and still scored
+        self.assertEqual(meta["ats"]["cover_letter"], 50)
+        self.assertEqual(meta["ats"]["resume"], 0)   # unedited, re-scored: a variant only
 
 
 if __name__ == "__main__":
