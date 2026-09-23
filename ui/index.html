@@ -456,8 +456,8 @@ footer { padding: 40px 0 64px; color: var(--text-3); font-size: 0.83rem; border-
              placeholder="e.g. lead with the problem, not my job title">
     </div>
     <footer>
-      <span class="msg" id="sheetmsg">Edits re-render the PDF from this text. The factuality
-      check does not run again, so anything you add here is on you.</span>
+      <span class="msg" id="sheetmsg">Edits re-render the PDF from this text. Nothing checks
+      it against your experience bank, so what you add here is on you.</span>
       <button id="sheetcancel">Cancel</button>
       <button class="primary" id="sheetsave">Save &amp; re-render</button>
     </footer>
@@ -470,11 +470,11 @@ const $ = s => document.querySelector(s);
 let started = 0, timer = null;
 
 const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-// The resume comes three ways from one text. The Word file is the safest to
-// upload; the designed PDF is two columns, for people rather than parsers.
+// The resume comes two ways from one text: the single-column PDF to upload,
+// and the two-column design, for people rather than parsers. The factuality
+// review label stays so runs from before it was removed still read cleanly.
 const LABELS = {
-  "tailored_resume.docx":"Resume (.docx, upload this)",
-  "tailored_resume.pdf":"Resume (PDF, single column)",
+  "tailored_resume.pdf":"Resume (upload this)",
   "resume_designed.pdf":"Resume (designed, for people)",
   "cover_letter.pdf":"Cover letter",
   "application_strategy.pdf":"Strategy", "evidence_map.pdf":"Evidence map",
@@ -497,7 +497,7 @@ function atsChip(score, target) {
 // The API addresses a document by key, never by filename, so the server
 // decides which file an edit touches.
 const KEYS = {
-  "tailored_resume.pdf":"resume", "tailored_resume.docx":"resume",
+  "tailored_resume.pdf":"resume",
   "resume_designed.pdf":"resume", "cover_letter.pdf":"cover_letter",
   "application_strategy.pdf":"strategy", "evidence_map.pdf":"evidence_map",
   "factuality_review.pdf":"factuality_review"
@@ -614,8 +614,8 @@ const sheet = {
   name: $("#sheetname"), where: $("#sheetwhere"),
   open: false, folder: "", key: "", file: "", original: "",
 };
-const SHEET_HINT = "Edits re-render the PDF from this text. The factuality check does not " +
-                   "run again, so anything you add here is on you.";
+const SHEET_HINT = "Edits re-render the PDF from this text. Nothing checks it against your " +
+                   "experience bank, so what you add here is on you.";
 
 function say(text, bad) {
   sheet.msg.textContent = text;

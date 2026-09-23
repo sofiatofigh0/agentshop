@@ -4,4 +4,3 @@ weasyprint
 markdown
 pypdf
 flask
-python-docx

@@ -6,22 +6,18 @@ those separate matters — the writing prompts stay about content, and how a
 resume looks is a styling decision made once here rather than negotiated with a
 model on every run.
 
-The resume is rendered three ways from the same markdown:
+The resume is rendered two ways from the same markdown:
 
     ATS_CSS       tailored_resume.pdf — one column, no tables, bullets as text.
                   The copy to upload. A screening system reads a page as one
                   stream, and this layout is that stream.
-    write_resume_docx
-                  tailored_resume.docx — the same single column as a Word
-                  document. The format every applicant tracking system parses
-                  without edge cases; upload this unless a form asks for PDF.
     DOCUMENT_CSS  resume_designed.pdf — the two-column design. For people:
                   a referral, an email to a hiring manager, a printout. Not for
                   upload, because a parser reads two columns as one and fuses
                   them (tests/test_documents.py shows it on this very layout).
 
 Plus LETTER_CSS for the cover letter, and REPORT_CSS for the internal working
-documents — evidence map, factuality review, strategy, ATS report — which are
+documents — evidence map, strategy, ATS report — which are
 denser and allowed wide tables.
 """
 
@@ -395,104 +391,6 @@ def render_resume_ats_html(md: str) -> str:
         f'<h1 class="name">{_ats_inline(doc["name"])}</h1>{title}{contact}{sections}'
         "</body></html>"
     )
-
-
-def _plain_runs(paragraph, text: str, bold: bool = False, italic: bool = False) -> None:
-    """Add markdown text to a Word paragraph as runs: **bold** kept, a link
-    shown as its address (see _inline), everything else as written."""
-    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", lambda m: _visible_url(m.group(2)), text)
-    for i, piece in enumerate(re.split(r"\*\*(.+?)\*\*", text)):
-        if not piece:
-            continue
-        run = paragraph.add_run(piece)
-        run.bold = bold or (i % 2 == 1)
-        run.italic = italic
-
-
-INSTALL_HINT = "pip install -r requirements.txt"
-
-
-def docx_available() -> bool:
-    """Whether python-docx is installed. It is in requirements.txt, but a
-    virtualenv built before it was added will not have it."""
-    try:
-        import docx  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
-def write_resume_docx(md: str, path: str, pt: float = 10.0) -> None:
-    """The single-column resume as a Word document.
-
-    Built from the same parse as the PDF, in the same order. Everything is body
-    text: the section header and footer stay empty, because a parser that
-    skips them would lose whatever was put there. No tables and no text boxes.
-    Role lines put the dates after a right-aligned tab, which reads as one line
-    of text to a parser and as a right-aligned date to a person.
-
-    `pt` is the size the PDF fitted at, so the two copies match. Word lays the
-    page out itself when it opens the file, so page count is not measured here.
-    """
-    from docx import Document
-    from docx.enum.text import WD_TAB_ALIGNMENT
-    from docx.shared import Inches, Pt, RGBColor
-
-    doc = _parse_resume(md)
-    word = Document()
-    section = word.sections[0]
-    section.page_width, section.page_height = Inches(8.5), Inches(11)
-    for side in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
-        setattr(section, side, Inches(0.5))
-    usable = section.page_width - section.left_margin - section.right_margin
-
-    normal = word.styles["Normal"]
-    normal.font.name = "Arial"
-    normal.font.size = Pt(pt)
-    normal.paragraph_format.space_after = Pt(pt * 0.3)
-    normal.paragraph_format.space_before = Pt(0)
-
-    heading = word.styles["Heading 1"]
-    heading.font.name = "Arial"
-    heading.font.size = Pt(pt * 1.1)
-    heading.font.bold = True
-    heading.font.color.rgb = RGBColor(0x11, 0x11, 0x11)
-    heading.paragraph_format.space_before = Pt(pt * 0.9)
-    heading.paragraph_format.space_after = Pt(pt * 0.3)
-
-    name = word.add_paragraph()
-    run = name.add_run(doc["name"])
-    run.bold = True
-    run.font.size = Pt(pt * 2.0)
-    if doc["title"]:
-        _plain_runs(word.add_paragraph(), doc["title"].strip("*"), bold=True)
-    if doc["contact"]:
-        _plain_runs(word.add_paragraph(), doc["contact"])
-
-    for part in doc["sections"]:
-        word.add_heading(part["heading"], level=1)
-        inline_lists = part["heading"].strip().lower() in INLINE_LIST_SECTIONS
-        for block in part["blocks"]:
-            if block["kind"] == "job":
-                head = word.add_paragraph()
-                head.paragraph_format.tab_stops.add_tab_stop(usable, WD_TAB_ALIGNMENT.RIGHT)
-                head.paragraph_format.keep_with_next = True
-                _plain_runs(head, block["title"], bold=True)
-                if block["dates"]:
-                    head.add_run("\t" + block["dates"])
-                if block["note"]:
-                    _plain_runs(word.add_paragraph(), block["note"], italic=True)
-                for item in block["items"]:
-                    _plain_runs(word.add_paragraph(style="List Bullet"), item)
-            elif block["kind"] == "list" and inline_lists:
-                _plain_runs(word.add_paragraph(), ", ".join(block["items"]))
-            elif block["kind"] == "list":
-                for item in block["items"]:
-                    _plain_runs(word.add_paragraph(style="List Bullet"), item)
-            else:
-                _plain_runs(word.add_paragraph(), block["text"])
-
-    word.save(path)
 
 
 def _html(markdown_text: str) -> str:

@@ -18,7 +18,7 @@ import unittest
 
 import ats
 import documents
-from application_generator import FACTUALITY_PROMPT, PHRASING_PROMPT, RESUME_PROMPT
+from application_generator import PHRASING_PROMPT, RESUME_PROMPT
 
 LABELLED = """# Jane Example
 **AI Product Manager**
@@ -71,7 +71,6 @@ def flat(text):
 
 
 RESUME = flat(RESUME_PROMPT)
-FACTUALITY = flat(FACTUALITY_PROMPT)
 
 
 class AtsRules(unittest.TestCase):
@@ -96,12 +95,6 @@ class AtsRules(unittest.TestCase):
 
     def test_the_summary_repeats_the_title(self):
         self.assertIn("The Summary's first sentence repeats the same title", RESUME)
-
-    def test_the_reviewer_judges_the_headline_on_seniority_only(self):
-        """Otherwise the factuality pass would revise the exact title away."""
-        self.assertIn("is the title of the role being applied for", FACTUALITY)
-        self.assertIn("do not require it to match a title in the bank", FACTUALITY)
-        self.assertIn("must match the bank's official title for it exactly", FACTUALITY)
 
     def test_dates_icons_urls_and_education_flags(self):
         self.assertIn("Month Year - Month Year", RESUME)

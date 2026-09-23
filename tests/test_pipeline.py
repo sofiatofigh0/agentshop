@@ -1,8 +1,8 @@
 """The generation pipeline with the model calls faked.
 
 What is under test is the wiring: which steps run in which order, when the
-rephrasing pass fires and when it does not, that the factuality review reads
-the reworded draft, and what lands on disk. The PDFs are really rendered.
+rephrasing pass fires and when it does not, which draft is kept, and what
+lands on disk. The PDFs are really rendered.
 """
 
 import json
@@ -65,8 +65,6 @@ FULL = HEAD + ("- Owned the product roadmap for the LLM evaluation suite used by
 EVIDENCE = "| Requirement | Priority | Evidence | Where | Metric | Strength | Gap |\n|-|-|-|-|-|-|-|\n| roadmap | HIGH | owned it | Acme | — | STRONG | — |\n"
 LETTER = "# Jane Example\nNew York · jane@example.com\n\nDear team,\n\nI owned the product roadmap.\n\nJane"
 STRATEGY = "## Recommendation\nAPPLY\n## Why\nFit.\n"
-CLEAN_REVIEW = "| Claim | Verdict | Basis |\n|-|-|-|\n| roadmap | SUPPORTED | bank |\n\nREQUIRED FIXES\nNone.\n"
-DIRTY_REVIEW = "| Claim | Verdict | Basis |\n|-|-|-|\n| 40 teams | UNSUPPORTED | not in bank |\n\nREQUIRED FIXES\n- cut 40 teams\n"
 
 
 def fake_usage():
@@ -78,10 +76,9 @@ def fake_usage():
 class Fake:
     """Stand-in for _call: canned text per step, and a log of the steps run."""
 
-    def __init__(self, resume=DRAFT, reworded=REWORDED, review=CLEAN_REVIEW):
+    def __init__(self, resume=DRAFT, reworded=REWORDED):
         self.texts = {"evidence_map": EVIDENCE, "resume": resume, "phrasing": reworded,
-                      "factuality": review, "revision": FULL, "cover_letter": LETTER,
-                      "strategy": STRATEGY}
+                      "cover_letter": LETTER, "strategy": STRATEGY}
         self.steps = []
         self.inputs = {}
         self.lock = threading.Lock()
@@ -125,10 +122,8 @@ class Pipeline(unittest.TestCase):
         fake = Fake()
         package = self.run_pipeline(fake)
 
-        chain = [s for s in fake.steps if s in ("resume", "phrasing", "factuality", "revision")]
-        self.assertEqual(chain, ["resume", "phrasing", "factuality"])
-        # The review read the reworded draft, not the original.
-        self.assertIn("SQL reporting", fake.inputs["factuality"][1])
+        chain = [s for s in fake.steps if s in ("resume", "phrasing")]
+        self.assertEqual(chain, ["resume", "phrasing"])
         # Only the terms the bank mentions were offered to the pass.
         offered = fake.inputs["phrasing"][1]
         self.assertIn("- sql", offered)
@@ -138,21 +133,24 @@ class Pipeline(unittest.TestCase):
 
         self.assertEqual(package["ats"]["resume"], 75)
         self.assertEqual(package["ats"]["target"], 75)
-        self.assertEqual(package["generation_calls"], 7)  # 6 main + keywords
-        self.assertAlmostEqual(package["cost_usd"], round(7 * (1000 * 5 + 500 * 25) / 1e6, 4))
+        self.assertEqual(package["generation_calls"], 6)  # 5 main + keywords
+        self.assertAlmostEqual(package["cost_usd"], round(6 * (1000 * 5 + 500 * 25) / 1e6, 4))
 
         run_dir = package["run_dir"]
-        for name in ("tailored_resume.pdf", "tailored_resume.docx", "resume_designed.pdf",
-                     "cover_letter.pdf", "evidence_map.pdf",
-                     "factuality_review.pdf", "application_strategy.pdf", "ats_report.pdf",
-                     gen.ATS_FILE, gen.SOURCES_FILE, "run.json"):
+        self.assertEqual(sorted(f for f in os.listdir(run_dir) if f.endswith(".pdf")),
+                         ["application_strategy.pdf", "ats_report.pdf", "cover_letter.pdf",
+                          "evidence_map.pdf", "resume_designed.pdf", "tailored_resume.pdf"])
+        for name in (gen.ATS_FILE, gen.SOURCES_FILE, "run.json"):
             self.assertTrue(os.path.isfile(os.path.join(run_dir, name)), name)
-        self.assertEqual(set(package["files"]) >= {"resume", "resume_docx", "resume_designed"},
-                         True)
-        self.assertTrue(any("tailored_resume.docx" in line for line in self.progress))
-        # sources.json names the upload copy only; the other two derive from it.
+        self.assertEqual(set(package["files"]),
+                         {"resume", "resume_designed", "cover_letter", "evidence_map",
+                          "strategy", "ats_report"})
+        # sources.json names the upload copy only; the designed copy derives
+        # from it. The kept draft is the reworded one.
         with open(os.path.join(run_dir, gen.SOURCES_FILE)) as handle:
-            self.assertEqual(json.load(handle)["resume"]["file"], "tailored_resume.pdf")
+            sources = json.load(handle)
+        self.assertEqual(sources["resume"]["file"], "tailored_resume.pdf")
+        self.assertIn("SQL reporting", sources["resume"]["markdown"])
         with open(os.path.join(run_dir, gen.ATS_FILE)) as handle:
             data = json.load(handle)
         # The variant leads: the draft already says "roadmap", so rewording it
@@ -169,30 +167,41 @@ class Pipeline(unittest.TestCase):
         with open(os.path.join(run_dir, gen.SOURCES_FILE)) as handle:
             self.assertNotIn("ats_report", json.load(handle))
 
-    def test_a_missing_word_library_never_costs_the_run(self):
-        """The Word copy is written after every model call has been paid for.
+    def test_no_second_model_reads_the_resume(self):
+        """No review and no revision: the resume costs one call, two at most."""
+        fake = Fake()
+        package = self.run_pipeline(fake)
+        self.assertEqual(sorted(set(fake.steps)),
+                         ["cover_letter", "evidence_map", "phrasing", "resume", "strategy"])
+        self.assertFalse(os.path.exists(os.path.join(package["run_dir"], "factuality_review.pdf")))
 
-        A virtualenv built before python-docx was added must still get the
-        upload PDF, the letter, the reports and run.json — and be told how to
-        get the Word copy — rather than a traceback and a half-written folder.
-        """
-        import sys
-        with mock.patch.dict(sys.modules, {"docx": None}):
+    def test_a_failed_designed_copy_never_costs_the_run(self):
+        """The designed copy is rendered after every model call has been paid
+        for, so a failure there must leave the rest of the run intact."""
+        real_fit = gen.fit_pdf
+
+        def fit(markdown_text, path, style, **kwargs):
+            if style == "resume_designed":
+                raise RuntimeError("layout broke")
+            return real_fit(markdown_text, path, style, **kwargs)
+
+        with mock.patch.object(gen, "fit_pdf", fit):
             package = self.run_pipeline(Fake())
         run_dir = package["run_dir"]
-        self.assertFalse(os.path.exists(os.path.join(run_dir, "tailored_resume.docx")))
-        for name in ("tailored_resume.pdf", "resume_designed.pdf", "cover_letter.pdf",
-                     "ats_report.pdf", "run.json", gen.SOURCES_FILE):
+        self.assertFalse(os.path.exists(os.path.join(run_dir, "resume_designed.pdf")))
+        for name in ("tailored_resume.pdf", "cover_letter.pdf", "ats_report.pdf",
+                     "run.json", gen.SOURCES_FILE):
             self.assertTrue(os.path.isfile(os.path.join(run_dir, name)), name)
-        self.assertNotIn("resume_docx", package["files"])
-        self.assertTrue(any("pip install -r requirements.txt" in line for line in self.progress))
+        self.assertNotIn("resume_designed", package["files"])
+        self.assertTrue(any("resume_designed.pdf could not be written" in line
+                            for line in self.progress))
 
     def test_no_rephrasing_when_already_at_target(self):
         fake = Fake(resume=FULL)
         package = self.run_pipeline(fake)
         self.assertNotIn("phrasing", fake.steps)
         self.assertEqual(package["ats"]["resume"], 100)
-        self.assertEqual(package["generation_calls"], 6)
+        self.assertEqual(package["generation_calls"], 5)
 
     def test_no_rephrasing_when_there_is_nothing_honest_to_offer(self):
         """No variant on the page and nothing in the bank: no call is spent."""
@@ -215,15 +224,10 @@ class Pipeline(unittest.TestCase):
         fake = Fake(reworded=DRAFT)
         package = self.run_pipeline(fake)
         self.assertIn("phrasing", fake.steps)
-        self.assertIn("Owned the roadmap for the evaluation suite", fake.inputs["factuality"][1])
+        with open(os.path.join(package["run_dir"], gen.SOURCES_FILE)) as handle:
+            kept = json.load(handle)["resume"]["markdown"]
+        self.assertIn("Owned the roadmap for the evaluation suite", kept)
         self.assertEqual(package["ats"]["resume"], 0)
-
-    def test_revision_follows_a_failed_review(self):
-        fake = Fake(review=DIRTY_REVIEW)
-        package = self.run_pipeline(fake)
-        chain = [s for s in fake.steps if s in ("resume", "phrasing", "factuality", "revision")]
-        self.assertEqual(chain, ["resume", "phrasing", "factuality", "revision"])
-        self.assertEqual(package["ats"]["resume"], 100)  # scored on the final text
 
     def test_keyword_failure_does_not_stop_the_run(self):
         fake = Fake()
@@ -239,8 +243,7 @@ class Pipeline(unittest.TestCase):
         self.assertNotIn("ATS KEYWORDS", fake.inputs["resume"][0])
 
     def test_context_block_placement(self):
-        """The posting rides in the cached run context, not the user turn; the
-        factuality review gets neither."""
+        """The posting rides in the cached run context, not the user turn."""
         fake = Fake(resume=FULL)
         self.run_pipeline(fake)
         instructions, user, context = fake.inputs["resume"]
@@ -248,9 +251,29 @@ class Pipeline(unittest.TestCase):
         self.assertIn("Acme raised money", context)
         self.assertNotIn("JD text", user)
         self.assertIn("ATS KEYWORDS", instructions)
-        self.assertEqual(fake.inputs["factuality"][2], "")
         self.assertIn("ATS KEYWORDS", fake.inputs["cover_letter"][0])
         self.assertNotIn("ATS KEYWORDS", fake.inputs["strategy"][0])
+
+    def test_writers_are_told_up_front_which_terms_the_bank_uses(self):
+        """Fewer rephrasing calls: the first draft already knows the easy wins."""
+        fake = Fake(resume=FULL)
+        self.run_pipeline(fake)
+        for step in ("resume", "cover_letter"):
+            instructions = fake.inputs[step][0]
+            self.assertIn("THE BANK USES THESE WORDS", instructions, step)
+            self.assertIn("THE BANK NEVER USES THESE WORDS", instructions, step)
+        used = fake.inputs["resume"][0].split("THE BANK NEVER USES")[0]
+        self.assertIn("sql", used)
+        self.assertNotIn("kubernetes", used)
+
+    def test_the_documents_everything_waits_on_are_bounded(self):
+        """Output tokens are the slow, expensive ones, and the evidence map is
+        on every run's critical path."""
+        flat = lambda text: " ".join(text.split())
+        self.assertIn("At most 12 rows", flat(gen.EVIDENCE_MAP_PROMPT))
+        self.assertIn("Every cell is a phrase, not a sentence", flat(gen.EVIDENCE_MAP_PROMPT))
+        self.assertIn("give six", flat(gen.STRATEGY_PROMPT))
+        self.assertIn("about 700 words in all", flat(gen.STRATEGY_PROMPT))
 
     def test_stretch_brief_rides_on_instructions(self):
         fake = Fake(resume=FULL)
@@ -314,7 +337,7 @@ class CallShape(unittest.TestCase):
         self.assertNotIn("cache_control", system[2])
 
     def test_no_context_means_two_blocks(self):
-        client, _ = self.call("factuality", model="claude-haiku-4-5", context="")
+        client, _ = self.call("resume", model="claude-haiku-4-5", context="")
         self.assertEqual(len(client.calls[-1]["system"]), 2)
         self.assertNotIn("output_config", client.calls[-1])
 
@@ -331,7 +354,7 @@ class CallShape(unittest.TestCase):
         self.assertEqual(call["betas"], [gen.models.PER_MESSAGE_EFFORT_BETA])
 
     def test_default_depth_takes_the_plain_path(self):
-        client, _ = self.call("factuality")
+        client, _ = self.call("evidence_map")
         self.assertEqual([c["beta"] for c in client.calls], [False])
         self.assertEqual(client.calls[0]["messages"],
                          [{"role": "user", "content": "USER"}])
@@ -349,7 +372,7 @@ class CallShape(unittest.TestCase):
     def test_a_sweep_pins_effort_at_the_top_level_for_every_step(self):
         with mock.patch.dict(os.environ, {"ANTHROPIC_EFFORT": "low"}):
             sent = []
-            for step in ("evidence_map", "resume", "factuality"):
+            for step in ("evidence_map", "resume", "strategy"):
                 client, _ = self.call(step)
                 call = client.calls[-1]
                 self.assertFalse(call["beta"])

@@ -5,8 +5,8 @@ pursuing.
 Nothing in here is agentic. There is no loop and no tool use — Python calls the
 model in a fixed order and writes files to fixed paths:
 
-    evidence map  ->  resume draft  ->  [rephrasing pass]  ->  factuality check
-    + ATS keywords                  ->  final resume
+    evidence map  ->  resume draft  ->  [rephrasing pass]
+    + ATS keywords
                   ->  cover letter
                   ->  application strategy
                   ->  ATS report (plain Python, no model)
@@ -25,8 +25,15 @@ Simplify and Jobscan score a resume against the posting's terms and tell the
 candidate what to add. Here the score is computed the same way, but a missing
 term is only ever picked up by rewording a sentence that already says the
 thing — and only if the experience bank so much as mentions it. Everything
-else is reported as a gap. The factuality review runs after the rewording,
-not before, so nothing the pass does escapes it.
+else is reported as a gap.
+
+There is no second model reviewing the resume. Two things stand in for it:
+every writing prompt carries the same ground rules — the experience bank is
+the only source of facts — and claims marked needs_validation are stripped from
+the bank before any model sees it, so they cannot be used however a prompt is
+read. Both are instructions and omissions, not a check: nothing reads the
+finished resume back against the bank, so it is worth a read before it is
+sent.
 
 All model prompts for the generation stage live in this file.
 """
@@ -40,7 +47,7 @@ from datetime import datetime
 
 import anthropic
 
-from documents import INSTALL_HINT, fit_pdf, page_count, write_pdf, write_resume_docx
+from documents import fit_pdf, page_count, write_pdf
 
 import ats
 import lessons
@@ -64,11 +71,10 @@ SOURCES_FILE = "sources.json"
 ATS_FILE = "ats.json"
 ATS_REPORT = "ats_report.pdf"
 
-# The resume is one markdown source rendered three ways (see documents.py).
+# The resume is one markdown source rendered two ways (see documents.py).
 # tailored_resume.pdf is the single-column upload copy and the one sources.json
-# names; the other two are always rebuilt from the same text beside it.
+# names; the designed copy is always rebuilt from the same text beside it.
 RESUME_PDF = "tailored_resume.pdf"
-RESUME_DOCX = "tailored_resume.docx"
 RESUME_DESIGNED = "resume_designed.pdf"
 
 
@@ -81,7 +87,7 @@ def _generation_facts() -> str:
       instruction not to use them. Not sending them at all is strictly better:
       the model cannot misuse a number it never saw.
     - `interview_stories`. Only the strategy document needs them, so they ride
-      on that one call's user message instead of all six system prompts.
+      on that one call's user message instead of every system prompt.
     """
     bank = copy.deepcopy(EXPERIENCE_BANK)
     for role in bank["roles"]:
@@ -225,9 +231,8 @@ def _call(step: str, instructions: str, user: str, context: str = "",
     """One plain model call. Returns (text, usage).
 
     No tools here — this stage is a fixed pipeline, not an agent loop. `step`
-    names the effort the call runs at; `context` is the per-run block, left out
-    of the calls that must not be looking at the posting (the factuality
-    review judges the draft against the bank and nothing else).
+    names the effort the call runs at; `context` is the per-run block holding
+    the posting and any research.
 
     Every call here sends the same two cached system blocks, so the top-level
     effort has to stay identical between them — a change there would rewrite
@@ -294,9 +299,14 @@ important requirement, strongest first:
 Do not pad the table with weak rows to make the candidate look better. A NONE
 row is more useful than a stretched one.
 
-After the table, write two short sections: "Strongest angles" (the two or three
-rows to build the whole application around) and "Real gaps" (what genuinely
-isn't there).
+Keep it tight — every other document waits for this one, and is written from
+it. At most 12 rows: fold minor requirements into the row they belong to rather
+than giving each its own. Every cell is a phrase, not a sentence; the writers
+need the pointer, not the prose, and the full facts are in the bank.
+
+After the table, write two short sections, a few lines each: "Strongest
+angles" (the two or three rows to build the whole application around) and
+"Real gaps" (what genuinely isn't there).
 """
 
 # Added to the evidence map only on a stretch run. The table above stays
@@ -492,93 +502,7 @@ def rephrase_resume(context: str, draft: str, offered: list) -> tuple:
 
 
 # --------------------------------------------------------------------------
-# Step 3: factuality check — deliberately a separate call
-# --------------------------------------------------------------------------
-
-FACTUALITY_PROMPT = """You are a factuality reviewer. You did not write this
-resume and you have no interest in it looking good.
-
-Go through the draft claim by claim — every employer, title, date, metric,
-technology, scope claim and seniority implication. For each one, decide whether
-the experience bank supports it:
-
-SUPPORTED           the bank states this, or it is a fair rewording, or it is
-                    listed under that project's `framing`
-PARTIALLY SUPPORTED the bank hints at it but the draft goes further
-UNSUPPORTED         the bank does not contain this at all
-
-Two kinds of title appear, and they are judged differently:
-- The bold line directly under the name is the title of the role being applied
-  for, and the Summary's first sentence may repeat it. It is not a claim about
-  any past position, so do not require it to match a title in the bank. Judge
-  it on one thing: whether it implies more seniority than the bank supports
-  (Director, Head of, VP, Principal, Staff, Group, or managing other PMs). If
-  it does not, it is SUPPORTED.
-- The title in each Work Experience role line is a claim about that job, and
-  must match the bank's official title for it exactly.
-
-Treat these as UNSUPPORTED even though the words appear in the bank:
-- anything whose `source` is `needs_validation`
-- an `approximate_supported_metric` restated as a precise figure, with its "~",
-  "approximately" or "roughly" dropped
-- two `metric_variants` from one project combined, summed, or used as if they
-  measure the same thing
-- any claim that breaks a `metric_warning`, `caveat`, `label_rule` or
-  `scale_caveat`
-- a metric restated without the timeframe the bank gives it
-- an expected value presented as a measured outcome
-- a personal project described as commercial, production-scale, or as having users
-- any tenure claim that does not match the bank's own wording
-
-Output a markdown table: | Claim | Verdict | Basis in the bank |
-
-Give the SUPPORTED claims one line each, at most; spend your attention on the
-other two. Then write a section headed exactly "REQUIRED FIXES" listing each
-PARTIALLY SUPPORTED or UNSUPPORTED claim and how to correct it — usually by
-cutting it or weakening it to what the bank actually says. If everything
-checks out, write "REQUIRED FIXES" followed by "None."
-"""
-
-
-def check_factuality(resume_draft: str) -> tuple:
-    """Second opinion on the draft. Returns the review, not a verdict.
-
-    Deliberately gets no job description: the question is whether the bank
-    supports each claim, and the posting has no say in that.
-    """
-    return _call("factuality", FACTUALITY_PROMPT, f"DRAFT RESUME:\n{resume_draft}")
-
-
-REVISION_PROMPT = """You are correcting a resume that failed a factuality
-review. Apply every fix the review asks for — cut or weaken the offending
-claims — and change nothing else. Return the corrected resume in full, in
-markdown, with no commentary.
-"""
-
-
-def revise_resume(resume_draft: str, review: str) -> tuple:
-    """Rewrite the draft to remove unsupported claims."""
-    user = f"DRAFT RESUME:\n{resume_draft}\n\nFACTUALITY REVIEW:\n{review}"
-    return _call("revision", REVISION_PROMPT, user)
-
-
-def review_found_problems(review: str) -> bool:
-    """Deterministic gate: does the review demand changes?
-
-    Python decides whether a revision pass happens, by reading the review's
-    verdict vocabulary. The model does not get to wave its own draft through.
-    """
-    upper = review.upper()
-    if "UNSUPPORTED" in upper or "PARTIALLY SUPPORTED" in upper:
-        # The words appear in the instructions' vocabulary too, so confirm the
-        # review actually asked for fixes.
-        after = upper.split("REQUIRED FIXES", 1)[-1]
-        return "NONE." not in after[:40]
-    return False
-
-
-# --------------------------------------------------------------------------
-# Step 4: cover letter
+# Step 3: cover letter
 # --------------------------------------------------------------------------
 
 COVER_LETTER_PROMPT = """You write short, specific cover letters.
@@ -630,7 +554,7 @@ def write_cover_letter(context: str, evidence_map: str, guidance: str = "") -> t
 
 
 # --------------------------------------------------------------------------
-# Step 5: application strategy
+# Step 4: application strategy
 # --------------------------------------------------------------------------
 
 STRATEGY_PROMPT = """You brief candidates before they apply.
@@ -647,12 +571,16 @@ Write a strategy document in markdown with exactly these sections, in order:
 ## What NOT to emphasize
 ## Company-specific notes from research
 
-Under "Likely interview questions", give each question its own line and name
-the specific experience from the bank that should answer it. Under "Company-
+Under "Likely interview questions", give six, each on its own line, naming the
+specific experience from the bank that should answer it. Under "Company-
 specific notes from research", write "No research was gathered." if none was —
 and where research is included, mark it as unverified and worth confirming,
 since this document is the candidate's own briefing rather than something the
 employer sees.
+
+Write it as a brief, not an essay: bullets of one or two lines under every
+section after "Why", and about 700 words in all. It is read the night before
+an interview, where a short page gets used and a long one gets skimmed.
 
 Be direct about the gaps. A brief that only flatters is useless.
 """
@@ -700,36 +628,21 @@ def _atomic(path: str, render) -> None:
             os.remove(draft)
 
 
-def render_resume_companions(markdown_text: str, run_dir: str, pt: float) -> dict:
-    """Write the Word copy and the two-column designed copy of a resume.
+def render_resume_companions(markdown_text: str, run_dir: str, pt: float = None) -> dict:
+    """Write the two-column designed copy of a resume.
 
     Called wherever the upload PDF is rendered — at generation and after every
-    edit — so the copies can never describe different resumes. `pt` is the
-    size the upload PDF fitted at, which the Word copy reuses.
+    edit — so the two copies can never describe different resumes.
 
-    Neither copy is allowed to fail the caller. At generation this runs after
-    every model call has been paid for, and an export that cannot be written
-    must not throw away the run — the upload PDF, the letter and the reports
-    still land. Each copy is attempted separately and whatever went wrong is
-    returned, in words the candidate can act on.
+    It is not allowed to fail the caller. At generation this runs after every
+    model call has been paid for, and an extra copy that cannot be written must
+    not throw away the run — the upload PDF, the letter and the reports still
+    land. Whatever went wrong is returned instead.
 
     Returns {"written": [file, ...], "problems": [line, ...],
     "designed_pages": n or None, "designed_pt": pt or None}.
     """
     result = {"written": [], "problems": [], "designed_pages": None, "designed_pt": None}
-
-    try:
-        _atomic(os.path.join(run_dir, RESUME_DOCX),
-                lambda draft: write_resume_docx(markdown_text, draft, pt or 10.0))
-        result["written"].append(RESUME_DOCX)
-    except ImportError:
-        result["problems"].append(
-            f"{RESUME_DOCX} skipped: python-docx is not installed. Run "
-            f"`{INSTALL_HINT}` in this project's virtualenv, then re-run or edit "
-            "the resume to get the Word copy.")
-    except Exception as exc:
-        result["problems"].append(
-            f"{RESUME_DOCX} could not be written ({type(exc).__name__}: {exc}).")
 
     def designed(draft):
         result["designed_pages"], result["designed_pt"] = fit_pdf(
@@ -886,7 +799,7 @@ def generate_application_package(
         extracted = pending_keywords.result()
 
     keywords = extracted["keywords"]
-    keyword_block = ats.prompt_block(extracted)
+    keyword_block = ats.prompt_block(extracted, BANK_PROSE)
 
     # The evidence map is the only step the rest depends on. After it, the
     # resume chain, the cover letter and the strategy share no inputs, so they
@@ -920,14 +833,8 @@ def generate_application_package(
                     draft = reworded
                 progress(f"ATS: resume now {rescored['score'] if kept else scored['score']}/100")
 
-        # The review reads whatever the rewording produced, so nothing that
-        # pass did is outside the guardrail.
-        review = run(check_factuality(draft))
-        if review_found_problems(review):
-            progress("resume: unsupported claims found — revising...")
-            return run(revise_resume(draft, review)), review, pass_info
-        progress("resume: all claims supported.")
-        return draft, review, pass_info
+        progress("resume written.")
+        return draft, pass_info
 
     def cover_letter_step():
         text = run(write_cover_letter(context, evidence_map, guidance + keyword_block))
@@ -945,7 +852,7 @@ def generate_application_package(
         pending_resume = pool.submit(resume_chain)
         pending_letter = pool.submit(cover_letter_step)
         pending_strategy = pool.submit(strategy_step)
-        resume, review, pass_info = pending_resume.result()
+        resume, pass_info = pending_resume.result()
         cover_letter = pending_letter.result()
         strategy = pending_strategy.result()
 
@@ -956,7 +863,6 @@ def generate_application_package(
         ("resume", RESUME_PDF, resume, "resume"),
         ("cover_letter", "cover_letter.pdf", cover_letter, "letter"),
         ("evidence_map", "evidence_map.pdf", evidence_map, "report"),
-        ("factuality_review", "factuality_review.pdf", review, "report"),
         ("strategy", "application_strategy.pdf", strategy, "report"),
     ]
     files = {}
@@ -972,9 +878,6 @@ def generate_application_package(
                 progress(f"{name}: fitted to one page at {pt}pt")
         if style == "resume":
             extra = render_resume_companions(body, run_dir, pt)
-            if RESUME_DOCX in extra["written"]:
-                files["resume_docx"] = os.path.join(run_dir, RESUME_DOCX)
-                progress(f"{RESUME_DOCX}: written at {pt}pt")
             if RESUME_DESIGNED in extra["written"]:
                 files["resume_designed"] = os.path.join(run_dir, RESUME_DESIGNED)
                 progress(f"{RESUME_DESIGNED}: {extra['designed_pages']} page(s) "

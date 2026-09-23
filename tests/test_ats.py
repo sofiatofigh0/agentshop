@@ -295,6 +295,31 @@ class PromptMaterial(unittest.TestCase):
         self.assertIn('"Senior PM"', block)
         self.assertIn("Never add a term the experience bank does not earn", block)
 
+    def test_with_the_bank_the_terms_are_split_by_what_it_uses(self):
+        """Moving the rephrasing gate's check in front of the first draft."""
+        bank = ats._norm("Owned the product roadmap and wrote SQL for the LLM evaluation suite.")
+        block = ats.prompt_block({"title": "Senior PM", "keywords": KEYWORDS}, bank)
+        used, _, unused = block.partition("THE BANK NEVER USES THESE WORDS")
+        self.assertIn("THE BANK USES THESE WORDS", used)
+        for term in ("product roadmap", "sql", "llm evaluation"):
+            self.assertIn(term, used)
+            self.assertNotIn(term, unused.split("Use them the way")[0])
+        for term in ("kubernetes", "c++", "a/b testing"):
+            self.assertIn(term, unused)
+        self.assertIn("it is a gap, not a target", block)
+        self.assertIn('"Senior PM"', block)
+
+    def test_a_group_with_nothing_in_it_is_left_out(self):
+        everything = ats._norm(" ".join(k["term"] for k in KEYWORDS))
+        block = ats.prompt_block({"title": "", "keywords": KEYWORDS}, everything)
+        self.assertIn("THE BANK USES THESE WORDS", block)
+        self.assertNotIn("THE BANK NEVER USES THESE WORDS", block)
+
+    def test_without_the_bank_the_old_grouping_holds(self):
+        block = ats.prompt_block({"title": "", "keywords": KEYWORDS})
+        self.assertNotIn("THE BANK", block)
+        self.assertIn("required:", block)
+
     def test_rephrase_offer_puts_variants_first_and_caps(self):
         variants = [dict(kw(f"variant {i}"), used=f"v{i}") for i in range(3)]
         candidates = [kw(f"term {i}") for i in range(20)]
