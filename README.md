@@ -345,6 +345,12 @@ pip install -r requirements.txt
 cp .env.example .env      # fill in ANTHROPIC_API_KEY and ANTHROPIC_MODEL
 ```
 
+After pulling changes, run `pip install -r requirements.txt` again: new
+dependencies are not picked up by an existing virtualenv. The one most likely
+to be missing is `python-docx`, which writes the resume's `.docx` copy. Without
+it a run still completes, and the app says at startup and in the run log that
+the Word copy was skipped.
+
 Fill in `experience_bank.py` with real experience — the agent refuses to generate
 application materials while placeholders remain, because it will not invent facts
 to fill gaps. Then:

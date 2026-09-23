@@ -33,6 +33,7 @@ from agent import MODEL, evaluate, parse_field, parse_recommendation, report_tex
 import ats
 import lessons
 
+from documents import INSTALL_HINT, docx_available
 from application_generator import (
     ATS_FILE, OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
     render_resume_companions, write_ats_report,
@@ -275,10 +276,13 @@ def write_document(folder: str, key: str):
     warning = None
     if entry["style"] == "resume":
         try:
-            render_resume_companions(markdown_text, run_dir, pt)
+            problems = render_resume_companions(markdown_text, run_dir, pt)["problems"]
         except Exception as exc:
-            warning = (f"Saved, but the Word and designed copies could not be rebuilt "
-                       f"({type(exc).__name__}); they still show the previous text.")
+            problems = [f"the Word and designed copies could not be rebuilt "
+                        f"({type(exc).__name__})"]
+        if problems:
+            warning = ("Saved, but " + " ".join(problems)
+                       + " Any copy not rebuilt still shows the previous text.")
 
     before = entry["markdown"]
     entry["markdown"] = markdown_text
@@ -417,5 +421,8 @@ if __name__ == "__main__":
     # Bound to localhost on purpose: this runs the real agent with your key and
     # your private experience bank, and is not built to face the internet.
     port = choose_port(DEFAULT_PORT)
+    if not docx_available():
+        print(f"Note: python-docx is not installed, so resumes will come without the "
+              f".docx copy.\n      Install it with:  {INSTALL_HINT}\n")
     print(f"{TITLE} — http://localhost:{port}")
     app.run(host="127.0.0.1", port=port, debug=False)

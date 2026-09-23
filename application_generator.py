@@ -40,7 +40,7 @@ from datetime import datetime
 
 import anthropic
 
-from documents import fit_pdf, page_count, write_pdf, write_resume_docx
+from documents import INSTALL_HINT, fit_pdf, page_count, write_pdf, write_resume_docx
 
 import ats
 import lessons
@@ -704,19 +704,44 @@ def render_resume_companions(markdown_text: str, run_dir: str, pt: float) -> dic
     """Write the Word copy and the two-column designed copy of a resume.
 
     Called wherever the upload PDF is rendered — at generation and after every
-    edit — so the three copies can never describe different resumes. `pt` is
-    the size the upload PDF fitted at, which the Word copy reuses. Returns
-    {"designed_pages": n, "designed_pt": pt}.
+    edit — so the copies can never describe different resumes. `pt` is the
+    size the upload PDF fitted at, which the Word copy reuses.
+
+    Neither copy is allowed to fail the caller. At generation this runs after
+    every model call has been paid for, and an export that cannot be written
+    must not throw away the run — the upload PDF, the letter and the reports
+    still land. Each copy is attempted separately and whatever went wrong is
+    returned, in words the candidate can act on.
+
+    Returns {"written": [file, ...], "problems": [line, ...],
+    "designed_pages": n or None, "designed_pt": pt or None}.
     """
-    _atomic(os.path.join(run_dir, RESUME_DOCX),
-            lambda draft: write_resume_docx(markdown_text, draft, pt or 10.0))
-    fitted = {}
+    result = {"written": [], "problems": [], "designed_pages": None, "designed_pt": None}
+
+    try:
+        _atomic(os.path.join(run_dir, RESUME_DOCX),
+                lambda draft: write_resume_docx(markdown_text, draft, pt or 10.0))
+        result["written"].append(RESUME_DOCX)
+    except ImportError:
+        result["problems"].append(
+            f"{RESUME_DOCX} skipped: python-docx is not installed. Run "
+            f"`{INSTALL_HINT}` in this project's virtualenv, then re-run or edit "
+            "the resume to get the Word copy.")
+    except Exception as exc:
+        result["problems"].append(
+            f"{RESUME_DOCX} could not be written ({type(exc).__name__}: {exc}).")
 
     def designed(draft):
-        fitted["pages"], fitted["pt"] = fit_pdf(markdown_text, draft, "resume_designed")
+        result["designed_pages"], result["designed_pt"] = fit_pdf(
+            markdown_text, draft, "resume_designed")
 
-    _atomic(os.path.join(run_dir, RESUME_DESIGNED), designed)
-    return {"designed_pages": fitted["pages"], "designed_pt": fitted["pt"]}
+    try:
+        _atomic(os.path.join(run_dir, RESUME_DESIGNED), designed)
+        result["written"].append(RESUME_DESIGNED)
+    except Exception as exc:
+        result["problems"].append(
+            f"{RESUME_DESIGNED} could not be written ({type(exc).__name__}: {exc}).")
+    return result
 
 
 def render_document(markdown_text: str, path: str, style: str) -> tuple:
@@ -947,10 +972,15 @@ def generate_application_package(
                 progress(f"{name}: fitted to one page at {pt}pt")
         if style == "resume":
             extra = render_resume_companions(body, run_dir, pt)
-            files["resume_docx"] = os.path.join(run_dir, RESUME_DOCX)
-            files["resume_designed"] = os.path.join(run_dir, RESUME_DESIGNED)
-            progress(f"{RESUME_DOCX}: written at {pt}pt; {RESUME_DESIGNED}: "
-                     f"{extra['designed_pages']} page(s) at {extra['designed_pt']}pt")
+            if RESUME_DOCX in extra["written"]:
+                files["resume_docx"] = os.path.join(run_dir, RESUME_DOCX)
+                progress(f"{RESUME_DOCX}: written at {pt}pt")
+            if RESUME_DESIGNED in extra["written"]:
+                files["resume_designed"] = os.path.join(run_dir, RESUME_DESIGNED)
+                progress(f"{RESUME_DESIGNED}: {extra['designed_pages']} page(s) "
+                         f"at {extra['designed_pt']}pt")
+            for problem in extra["problems"]:
+                progress(problem)
         files[key] = path
 
     # The ATS report: scores on the final text, the checks a parser cares

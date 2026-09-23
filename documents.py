@@ -409,6 +409,19 @@ def _plain_runs(paragraph, text: str, bold: bool = False, italic: bool = False) 
         run.italic = italic
 
 
+INSTALL_HINT = "pip install -r requirements.txt"
+
+
+def docx_available() -> bool:
+    """Whether python-docx is installed. It is in requirements.txt, but a
+    virtualenv built before it was added will not have it."""
+    try:
+        import docx  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def write_resume_docx(md: str, path: str, pt: float = 10.0) -> None:
     """The single-column resume as a Word document.
 
