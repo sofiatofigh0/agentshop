@@ -113,6 +113,20 @@ class ReadingOrder(unittest.TestCase):
         self.assertTrue(ats.pdf_text_check(path, terms)["ok"])
 
 
+class WordLibrary(unittest.TestCase):
+    def test_availability_is_detected(self):
+        import sys
+        from unittest import mock
+        self.assertTrue(documents.docx_available())
+        with mock.patch.dict(sys.modules, {"docx": None}):
+            self.assertFalse(documents.docx_available())
+
+    def test_the_library_is_a_declared_requirement(self):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "requirements.txt")) as handle:
+            self.assertIn("python-docx", handle.read().split())
+
+
 class WordCopy(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -169,6 +169,24 @@ class Pipeline(unittest.TestCase):
         with open(os.path.join(run_dir, gen.SOURCES_FILE)) as handle:
             self.assertNotIn("ats_report", json.load(handle))
 
+    def test_a_missing_word_library_never_costs_the_run(self):
+        """The Word copy is written after every model call has been paid for.
+
+        A virtualenv built before python-docx was added must still get the
+        upload PDF, the letter, the reports and run.json — and be told how to
+        get the Word copy — rather than a traceback and a half-written folder.
+        """
+        import sys
+        with mock.patch.dict(sys.modules, {"docx": None}):
+            package = self.run_pipeline(Fake())
+        run_dir = package["run_dir"]
+        self.assertFalse(os.path.exists(os.path.join(run_dir, "tailored_resume.docx")))
+        for name in ("tailored_resume.pdf", "resume_designed.pdf", "cover_letter.pdf",
+                     "ats_report.pdf", "run.json", gen.SOURCES_FILE):
+            self.assertTrue(os.path.isfile(os.path.join(run_dir, name)), name)
+        self.assertNotIn("resume_docx", package["files"])
+        self.assertTrue(any("pip install -r requirements.txt" in line for line in self.progress))
+
     def test_no_rephrasing_when_already_at_target(self):
         fake = Fake(resume=FULL)
         package = self.run_pipeline(fake)

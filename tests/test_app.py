@@ -146,6 +146,19 @@ class EditRescores(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("could not be rebuilt", response.get_json()["warning"])
 
+    def test_an_edit_without_the_word_library_still_saves_and_says_why(self):
+        import sys
+        edited = RESUME.replace("Owned the roadmap", "Owned the product roadmap")
+        with mock.patch.dict(sys.modules, {"docx": None}):
+            response = self.client.put(f"/api/document/{self.folder}/resume",
+                                       json={"markdown": edited, "note": ""})
+        self.assertEqual(response.status_code, 200)
+        warning = response.get_json()["warning"]
+        self.assertIn("python-docx is not installed", warning)
+        self.assertIn("pip install -r requirements.txt", warning)
+        # The designed copy does not need the library, so it was still rebuilt.
+        self.assertTrue(os.path.isfile(os.path.join(self.run_dir, "resume_designed.pdf")))
+
     def test_history_lists_the_word_copy(self):
         self.client.put(f"/api/document/{self.folder}/resume",
                         json={"markdown": RESUME + "\n", "note": ""})
