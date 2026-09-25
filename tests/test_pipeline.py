@@ -286,6 +286,58 @@ class Pipeline(unittest.TestCase):
         self.assertNotIn("STRETCH APPLICATION", fake.inputs["evidence_map"][2])
 
 
+class CachedFake(Fake):
+    """A Fake whose later calls read the prefix the evidence map wrote."""
+
+    def __call__(self, step, instructions, user, context="", max_tokens=8000):
+        text, usage = super().__call__(step, instructions, user, context, max_tokens)
+        if step != "evidence_map":
+            usage.cache_read_input_tokens = 16000
+        return text, usage
+
+
+class CacheGuards(Pipeline):
+    """The two guards around the fan-out: the expiry refresh and the miss report."""
+
+    def run_with_refresh(self, fake, refresh, threshold):
+        with mock.patch.object(gen, "refresh_prefix", refresh), \
+             mock.patch.object(gen, "PREFIX_REFRESH_AFTER", threshold):
+            return self.run_pipeline(fake)
+
+    def test_a_slow_evidence_map_refreshes_the_prefix_before_the_fan_out(self):
+        refresh = mock.Mock(return_value=fake_usage())
+        package = self.run_with_refresh(CachedFake(), refresh, threshold=-1)
+        refresh.assert_called_once()
+        self.assertIn("JD text", refresh.call_args.args[0])  # the run context
+        self.assertTrue(any("refreshed the prompt cache" in line for line in self.progress))
+        # The refresh is a call like any other and is priced with the rest.
+        self.assertEqual(package["generation_calls"], 7)
+
+    def test_a_fast_evidence_map_sends_no_refresh(self):
+        refresh = mock.Mock(return_value=fake_usage())
+        self.run_with_refresh(CachedFake(), refresh, threshold=10_000)
+        refresh.assert_not_called()
+
+    def test_a_failed_refresh_does_not_fail_the_run(self):
+        refresh = mock.Mock(side_effect=RuntimeError("boom"))
+        package = self.run_with_refresh(CachedFake(), refresh, threshold=-1)
+        self.assertTrue(os.path.isfile(package["files"]["resume"]))
+        self.assertIn("cache refresh skipped (RuntimeError)", self.progress)
+
+    def test_reads_that_find_nothing_are_reported(self):
+        """A silent prefix rewrite costs money and says nothing unless asked."""
+        package = self.run_pipeline(Fake())   # every usage reads 0 cached tokens
+        self.assertEqual(sorted(package["cache_misses"]),
+                         ["cover letter", "phrasing", "resume", "strategy"])
+        self.assertTrue(any(line.startswith("cache: resume read nothing")
+                            for line in self.progress))
+
+    def test_healthy_reads_report_nothing(self):
+        package = self.run_pipeline(CachedFake())
+        self.assertEqual(package["cache_misses"], [])
+        self.assertFalse(any(line.startswith("cache:") for line in self.progress))
+
+
 class Recorder:
     """A fake Anthropic client that records both transport paths."""
 
@@ -379,6 +431,34 @@ class CallShape(unittest.TestCase):
                 sent.append(call["output_config"])
         self.assertEqual(sent, [{"effort": "low"}] * 3)
 
+
+    def test_the_refresh_sends_exactly_the_cached_blocks(self):
+        """Byte-identical to what the documents send, or it refreshes nothing."""
+        client, _ = self.call("resume")
+        with mock.patch.object(gen.anthropic, "Anthropic", lambda: client), \
+             mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5"}):
+            gen.refresh_prefix("RUN CONTEXT")
+        document, refresh = client.calls[-2], client.calls[-1]
+        self.assertEqual(refresh["system"], document["system"][:2])
+        self.assertEqual(refresh["max_tokens"], 0)
+        self.assertFalse(refresh["beta"])
+        self.assertNotIn("output_config", refresh)   # same top level as the documents
+        self.assertNotIn("stream", refresh)          # max_tokens=0 rejects streaming
+
+    def test_a_sweep_s_top_level_effort_reaches_the_refresh_too(self):
+        client = Recorder()
+        with mock.patch.object(gen.anthropic, "Anthropic", lambda: client), \
+             mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5",
+                                          "ANTHROPIC_EFFORT": "low"}):
+            gen._call("resume", "STEP", "USER", "CTX")
+            gen.refresh_prefix("CTX")
+        self.assertEqual(client.calls[0]["output_config"], client.calls[1]["output_config"])
+
+    def test_the_bank_is_cached_for_an_hour_and_the_run_for_five_minutes(self):
+        client, _ = self.call("resume")
+        system = client.calls[-1]["system"]
+        self.assertEqual(system[0]["cache_control"], {"type": "ephemeral", "ttl": "1h"})
+        self.assertEqual(system[1]["cache_control"], {"type": "ephemeral"})
 
 if __name__ == "__main__":
     unittest.main()

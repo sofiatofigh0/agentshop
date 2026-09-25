@@ -69,7 +69,8 @@ _NEW_WEB_SEARCH = re.compile(r"claude-(?:opus-(?:4-[6-9]|5)|sonnet-(?:4-6|5)|fab
 
 # Models that can carry an effort change inside `messages` instead of at the
 # top level, which is what lets a step change depth without resetting the
-# cached prefix. Beta, and first-party API only.
+# cached prefix. Beta, and first-party API only. "opus-5" also covers
+# Claude Opus 5.5, which takes it too.
 _PER_MESSAGE_EFFORT = re.compile(r"claude-(?:opus-5|fable-5-1|mythos-5-1)")
 PER_MESSAGE_EFFORT_BETA = "mid-conversation-output-config-2026-07-01"
 
@@ -126,9 +127,22 @@ GENERATION_STEPS = frozenset({
 
 _LEVELS = ("low", "medium", "high", "xhigh", "max")
 
-# The level every model treats as its default. Sending it explicitly is the
-# same as omitting the field, so it is what the generation calls pin to.
+# The level a model runs at when no effort is sent. Sending it explicitly is
+# the same as omitting the field, so it is what the generation calls pin to.
+# Most models default to "high"; Claude Opus 5.5 defaults one level lower, and
+# assuming "high" there would quietly run the evidence map at "medium".
 DEFAULT_EFFORT = "high"
+_DEFAULT_EFFORT = [
+    (re.compile(r"claude-opus-5-5"), "medium"),
+]
+
+
+def default_effort(model: str) -> str:
+    """The effort this model runs at when the field is omitted."""
+    for pattern, level in _DEFAULT_EFFORT:
+        if pattern.search(model or ""):
+            return level
+    return DEFAULT_EFFORT
 
 
 def accepted_levels(model: str) -> tuple:
@@ -213,7 +227,7 @@ def effort_message(step: str, model: str = None):
             or not supports_effort(model) or not supports_per_message_effort(model)):
         return None
     level = effort_for(step, model)
-    if level == DEFAULT_EFFORT:
+    if level == default_effort(model):
         return None  # identical to omitting it, so do not spend a message on it
     return {"role": "system", "content": [], "output_config": {"effort": level}}
 
@@ -222,21 +236,30 @@ def effort_message(step: str, model: str = None):
 # Cache lifetime
 # --------------------------------------------------------------------------
 
+def long_lived_ttl() -> str:
+    """"1h" or "5m": the lifetime of the blocks that outlive a run."""
+    chosen = os.environ.get("PROMPT_CACHE_TTL", "").strip().lower()
+    return "5m" if chosen == "5m" else "1h"
+
+
 def cache_control(long_lived: bool = False) -> dict:
     """The cache marker for one prompt block.
 
-    The default 5-minute cache is right for the calls inside one run, which
-    start well under five minutes apart. The blocks that are byte-identical
-    across runs — the agent's instructions and the generation prefix with the
-    whole experience bank in it — can outlive a run when PROMPT_CACHE_TTL=1h
-    is set: a write then costs 2x instead of 1.25x, but every further run
-    inside the hour reads the bank back at a tenth of the price instead of
-    re-writing it. Worth it when several postings are run in one sitting;
-    not when they are a day apart. Per-run blocks always stay at 5 minutes,
-    and the API requires the longer-lived block to come first, which the
-    callers here respect.
+    The per-run blocks keep the default 5-minute cache: the calls inside one
+    run start well under five minutes apart, and every read refreshes it.
+
+    The blocks that are byte-identical across runs — the agent's instructions
+    and the generation prefix holding the whole experience bank — get an hour.
+    Postings run one after another are further apart than five minutes, so on
+    the 5-minute cache each run re-wrote the bank at 1.25x and never read it
+    again. On the hour cache the first run of a sitting writes it at 2x and
+    every later run inside the hour reads it at a tenth of the price or less:
+    the hour pays for itself from the second run. A run on its own pays the
+    difference, 0.75x on the prefix; PROMPT_CACHE_TTL=5m turns it off for
+    anyone who only ever runs one posting at a time. The API requires the
+    longer-lived block to come first, which the callers here respect.
     """
-    if long_lived and os.environ.get("PROMPT_CACHE_TTL", "").strip().lower() == "1h":
+    if long_lived and long_lived_ttl() == "1h":
         return {"type": "ephemeral", "ttl": "1h"}
     return {"type": "ephemeral"}
 
@@ -247,11 +270,12 @@ def cache_control(long_lived: bool = False) -> dict:
 
 # Dollars per million tokens, (input, output), first-party API rates. Cache
 # writes bill 1.25x input for the 5-minute TTL and 2x for the 1-hour one;
-# cache reads bill 0.1x, except Claude Fable 5.1 at 0.025x. Longest names
-# first so "claude-fable-5" cannot claim "claude-fable-5-1".
+# cache reads are priced by cache_read_rate() below. Longest names first so
+# "claude-opus-5" cannot claim "claude-opus-5-5".
 RATES = sorted([
     ("claude-fable-5-1", 10.0, 50.0), ("claude-mythos-5-1", 10.0, 50.0),
     ("claude-fable-5", 10.0, 50.0), ("claude-mythos-5", 10.0, 50.0),
+    ("claude-opus-5-5", 4.0, 20.0),
     ("claude-opus-5", 5.0, 25.0), ("claude-opus-4-8", 5.0, 25.0),
     ("claude-opus-4-7", 5.0, 25.0), ("claude-opus-4-6", 5.0, 25.0),
     ("claude-opus-4-5", 5.0, 25.0),
@@ -261,6 +285,21 @@ RATES = sorted([
 ], key=lambda row: -len(row[0]))
 
 WEB_SEARCH_USD = 0.01   # $10 per 1,000 searches, on top of the tokens
+
+
+# Cache reads as a fraction of the input price. 0.1x on most models; the
+# newest price them lower, which moves every caching break-even with them.
+_CACHE_READ_RATES = [
+    (re.compile(r"claude-(?:fable|mythos)-5-1"), 0.025),
+    (re.compile(r"claude-opus-5-5"), 0.05),
+]
+
+
+def cache_read_rate(model: str) -> float:
+    for pattern, rate in _CACHE_READ_RATES:
+        if pattern.search(model or ""):
+            return rate
+    return 0.1
 
 
 def rates(model: str):
@@ -319,7 +358,7 @@ class Spend:
                 self._unpriced = True
                 return
             per_in, per_out = price
-            read_rate = 0.025 if "fable-5-1" in model else 0.1
+            read_rate = cache_read_rate(model)
             self._usd += (
                 inp * per_in
                 + w5m * per_in * 1.25

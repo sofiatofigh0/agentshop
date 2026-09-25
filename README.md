@@ -283,6 +283,8 @@ resume. The levers, in the order they were applied:
 | No review pass | The factuality review and the revision it could trigger are gone. The review ran at the default depth after the resume was written, so it was the costliest call after the evidence map, and it sat on the longest branch of the run. | Yes — see "Factual guardrails" |
 | Bank-aware first draft | The writers are told up front which of the posting's terms the bank uses, the same plain-Python check the rephrasing gate runs afterwards. A first draft that uses them lands nearer the target, so the second, full-resume rephrasing call fires less often. | No |
 | Bounded outputs | Output tokens cost five times input and set the pace. Every document waits for the evidence map, which is now at most 12 rows of short phrases. The strategy brief is bullets, about 700 words, with six interview questions. | Slightly: shorter internal documents, same facts |
+| Hour-long bank cache | The experience bank and the agent's instructions are cached for an hour by default instead of five minutes. Postings run one after another are further apart than five minutes, so every run used to re-write the bank at 1.25x and never read it back. The first run of a sitting now writes it at 2x; every later run inside the hour reads it at 0.1x or less. | No |
+| Expiry guard | A cache entry lives five minutes from the start of the request that wrote it. If the evidence map runs past four minutes, one `max_tokens: 0` refresh goes out before the resume, letter and strategy start together — otherwise each of the three would re-write the prefix. | No |
 
 ### Effort against caching
 
@@ -313,16 +315,40 @@ nothing for them to invalidate.
 top-level effort. That test is the regression guard: the first version of this
 change did vary it, and would have quietly spent more than it saved.
 
+### Checking that the cache is working
+
+A broken cache fails silently: every call still succeeds, the bill is just
+higher. Three things watch for it:
+
+- Every step after the evidence map must read the prefix the map wrote. One
+  that reads nothing prints a `cache: <step> read nothing from the prompt
+  cache` line in the progress stream, and the CLI trace lists it under
+  `Cache misses`.
+- The trace prints `Generation cache written` and `Generation cache read`.
+  Within an hour of an earlier run, a run should write only the posting and
+  research (a few thousand tokens), not the ~14k-token bank.
+- `tests/test_cache_prefix.py` builds the cached prefixes under two different
+  hash seeds and requires them to match byte for byte, which catches the usual
+  culprit — a set or dict serialized in hash order — before it reaches the bill.
+
+### Claude Opus 5.5
+
+`ANTHROPIC_MODEL=claude-opus-5-5` is supported, and is the cheapest Opus: $4 in, $20 out per million tokens, with cache
+reads at 0.05x ($0.20). Two things differ from Opus 5, and `models.py` handles
+both: its default effort is `medium` rather than `high`, so the evidence map is
+sent an explicit `high` (assuming a `high` default would have quietly run it at
+`medium`), and the price table carries its own rates.
+
 Three optional settings in `.env` go further:
 
 - `ANTHROPIC_WORKER_MODEL` — a cheaper model (say `claude-sonnet-5`) for the
   extraction-shaped side jobs only: search summaries, keyword extraction,
   lesson distillation. The verdict and every document still come from
   `ANTHROPIC_MODEL`.
-- `PROMPT_CACHE_TTL=1h` — keeps the experience bank in the prompt cache for an
-  hour rather than five minutes. A write then costs 2× instead of 1.25×, but
-  every further run in the hour reads it at a tenth of the price. Worth it
-  when several postings are run in one sitting.
+- `PROMPT_CACHE_TTL=5m` — turns the hour-long bank cache off. The hour pays
+  for itself from the second run in an hour; a posting run on its own pays
+  0.75x of the prefix extra for it (about five cents on Opus 5). Set this if
+  you only ever run one posting at a time.
 - `ANTHROPIC_EFFORT` — forces one effort on every step, for comparing settings
   with `evals.py` one change at a time. One level everywhere is constant, so it
   is still cache-safe. A level the chosen model does not accept is clamped down
