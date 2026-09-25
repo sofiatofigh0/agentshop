@@ -100,6 +100,7 @@ def _execute(run_id: str, job_description: str) -> None:
         state["generation_tokens"] = {"input": package["input_tokens"],
                                       "output": package["output_tokens"],
                                       "cache_read": package["cache_read"],
+                                      "cache_written": package["cache_written"],
                                       "usd": package["cost_usd"]}
         state["ats"] = package["ats"]
         agent_usd, generation_usd = state.get("cost_usd"), package["cost_usd"]

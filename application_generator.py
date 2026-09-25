@@ -42,6 +42,7 @@ import copy
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
@@ -226,6 +227,45 @@ def run_context(job_description: str, research: str = "") -> str:
     return context
 
 
+def _system(context: str = "", instructions: str = "") -> list:
+    """The system prompt in cache order: stable prefix, run context, step.
+
+    One builder for every generation call and for refresh_prefix(), so the
+    cached blocks cannot drift apart byte by byte between them.
+    """
+    system = [{"type": "text", "text": STABLE_PREFIX,
+               "cache_control": cache_control(long_lived=True)}]
+    if context:
+        system.append({"type": "text", "text": context, "cache_control": cache_control()})
+    if instructions:
+        system.append({"type": "text", "text": instructions})
+    return system
+
+
+# A cache entry lives five minutes from the START of the request that wrote
+# it, and the evidence map is that request. If the map itself runs close to
+# five minutes, the entry is gone by the time the three documents start —
+# and they start together, so each one would re-write the whole prefix. Past
+# this many seconds, one cheap refresh goes first and they read what it wrote.
+PREFIX_REFRESH_AFTER = 240
+
+
+def refresh_prefix(context: str):
+    """Read (or, if it has expired, re-write) the cached prefix. Returns usage.
+
+    max_tokens=0 runs the prefill only: the cache is refreshed and no output
+    is generated or billed. It carries the same top-level options as the
+    generation calls, since those are rendered into the prefix as well.
+    """
+    model = main_model()
+    response = anthropic.Anthropic().messages.create(
+        model=model, max_tokens=0, system=_system(context),
+        messages=[{"role": "user", "content": "warmup"}],
+        **request_options("resume", model),
+    )
+    return response.usage
+
+
 def _call(step: str, instructions: str, user: str, context: str = "",
           max_tokens: int = 8000) -> tuple:
     """One plain model call. Returns (text, usage).
@@ -241,15 +281,9 @@ def _call(step: str, instructions: str, user: str, context: str = "",
     without that beta gets one rejected call, after which the stage runs at
     the default depth for the rest of the process.
     """
-    system = [{"type": "text", "text": STABLE_PREFIX,
-               "cache_control": cache_control(long_lived=True)}]
-    if context:
-        system.append({"type": "text", "text": context, "cache_control": cache_control()})
-    system.append({"type": "text", "text": instructions})
-
     model = main_model()
     client = anthropic.Anthropic()
-    kwargs = dict(model=model, max_tokens=max_tokens, system=system,
+    kwargs = dict(model=model, max_tokens=max_tokens, system=_system(context, instructions),
                   **request_options(step, model))
     turn = {"role": "user", "content": user}
 
@@ -748,10 +782,18 @@ def generate_application_package(
     # Every call's usage lands here, priced as it arrives. The parallel steps
     # below all add to it; it locks internally.
     spend = Spend()
+    cache_misses = []
 
-    def run(step):
+    def run(step, reads_cache: str = ""):
+        """Price one call. `reads_cache` names a step that must find the
+        prefix the evidence map wrote; if it reads nothing, something upstream
+        rewrote the prefix and the run says so rather than silently paying."""
         text, usage = step
         spend.add(main_model(), usage)
+        if reads_cache and not (getattr(usage, "cache_read_input_tokens", 0) or 0):
+            cache_misses.append(reads_cache)
+            progress(f"cache: {reads_cache} read nothing from the prompt cache — "
+                     "the prefix was re-written at full price")
         return text
 
     # Anything short of APPLY means the agent saw a real distance between this
@@ -792,11 +834,21 @@ def generate_application_package(
     # the one that writes the cached prefix and the run context; everything
     # after it reads them.
     progress("building requirement-to-evidence map, extracting ATS keywords...")
+    started = time.monotonic()
     with ThreadPoolExecutor(max_workers=2) as pool:
         pending_map = pool.submit(lambda: run(build_evidence_map(context, guidance, stretch)))
         pending_keywords = pool.submit(keyword_step)
         evidence_map = pending_map.result()
+        map_seconds = time.monotonic() - started
         extracted = pending_keywords.result()
+
+    if map_seconds > PREFIX_REFRESH_AFTER:
+        try:
+            spend.add(main_model(), refresh_prefix(context))
+            progress(f"evidence map took {map_seconds / 60:.1f} min — refreshed the "
+                     "prompt cache before writing")
+        except Exception as exc:  # an optimisation, never a reason to fail a run
+            progress(f"cache refresh skipped ({type(exc).__name__})")
 
     keywords = extracted["keywords"]
     keyword_block = ats.prompt_block(extracted, BANK_PROSE)
@@ -806,7 +858,7 @@ def generate_application_package(
     # run at the same time rather than one after another — the same calls, the
     # same cost, roughly the time of three.
     def resume_chain():
-        draft = run(write_resume(context, evidence_map, guidance + keyword_block))
+        draft = run(write_resume(context, evidence_map, guidance + keyword_block), "resume")
         pass_info = None
 
         # One more call, only when it can honestly buy something: the draft
@@ -821,7 +873,7 @@ def generate_application_package(
                 progress(f"ATS: draft resume scores {scored['score']}/100 — rewording for "
                          f"{len(offered)} term(s): {len(scored['variants'])} said in another "
                          "form, the rest mentioned in the bank...")
-                reworded = run(rephrase_resume(context, draft, offered))
+                reworded = run(rephrase_resume(context, draft, offered), "phrasing")
                 rescored = ats.score(keywords, reworded)
                 kept = rescored["score"] > scored["score"]
                 # Which terms were put to it, not just how many: the report
@@ -837,12 +889,13 @@ def generate_application_package(
         return draft, pass_info
 
     def cover_letter_step():
-        text = run(write_cover_letter(context, evidence_map, guidance + keyword_block))
+        text = run(write_cover_letter(context, evidence_map, guidance + keyword_block),
+                   "cover letter")
         progress("cover letter written.")
         return text
 
     def strategy_step():
-        text = run(write_strategy(context, evidence_map, recommendation, reasoning))
+        text = run(write_strategy(context, evidence_map, recommendation, reasoning), "strategy")
         progress("application strategy written.")
         return text
 
@@ -933,5 +986,6 @@ def generate_application_package(
         # invalidating the prefix and the saving is not happening.
         "cache_written": spend.cache_written,
         "cache_read": spend.cache_read,
+        "cache_misses": cache_misses,
         "cost_usd": spend.dollars(),
     }

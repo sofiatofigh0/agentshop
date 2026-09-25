@@ -351,6 +351,8 @@ def main() -> None:
         print(f"Generation output tokens:  {package['output_tokens']}")
         print(f"Generation cache written:  {package['cache_written']}")
         print(f"Generation cache read:     {package['cache_read']}")
+        if package["cache_misses"]:
+            print(f"Cache misses:              {', '.join(package['cache_misses'])}")
     print(f"Evaluation cost:           {money(agent_usd)}")
     if package:
         print(f"Generation cost:           {money(generation_usd)}")

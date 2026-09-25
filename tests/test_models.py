@@ -153,15 +153,60 @@ class PerMessageEffort(unittest.TestCase):
 
 
 class CacheLifetime(unittest.TestCase):
-    def test_default_is_five_minutes(self):
+    def setUp(self):
         os.environ.pop("PROMPT_CACHE_TTL", None)
-        self.assertEqual(models.cache_control(long_lived=True), {"type": "ephemeral"})
 
-    def test_one_hour_only_for_long_lived_blocks(self):
+    def test_blocks_that_outlive_a_run_default_to_an_hour(self):
+        """Postings run one after another are more than five minutes apart."""
+        self.assertEqual(models.cache_control(long_lived=True),
+                         {"type": "ephemeral", "ttl": "1h"})
+
+    def test_per_run_blocks_stay_at_five_minutes(self):
+        self.assertEqual(models.cache_control(), {"type": "ephemeral"})
+
+    def test_five_minutes_on_request(self):
+        with mock.patch.dict(os.environ, {"PROMPT_CACHE_TTL": "5m"}):
+            self.assertEqual(models.cache_control(long_lived=True), {"type": "ephemeral"})
         with mock.patch.dict(os.environ, {"PROMPT_CACHE_TTL": "1h"}):
             self.assertEqual(models.cache_control(long_lived=True),
                              {"type": "ephemeral", "ttl": "1h"})
-            self.assertEqual(models.cache_control(), {"type": "ephemeral"})
+
+
+class Opus55(unittest.TestCase):
+    """The model changes two defaults this project otherwise assumes."""
+
+    def setUp(self):
+        models._per_message_effort_ok = True
+        self.addCleanup(setattr, models, "_per_message_effort_ok", True)
+        os.environ.pop("ANTHROPIC_EFFORT", None)
+
+    def test_default_effort_is_medium(self):
+        self.assertEqual(models.default_effort("claude-opus-5-5"), "medium")
+        self.assertEqual(models.default_effort("claude-opus-5"), "high")
+        self.assertEqual(models.default_effort("claude-fable-5-1"), "high")
+
+    def test_the_evidence_map_still_gets_high(self):
+        """Assuming a "high" default here would run the map at medium, silently."""
+        self.assertEqual(models.effort_message("evidence_map", "claude-opus-5-5"),
+                         {"role": "system", "content": [],
+                          "output_config": {"effort": "high"}})
+        # medium is 5.5's default, so the writing steps need no message at all
+        self.assertIsNone(models.effort_message("resume", "claude-opus-5-5"))
+
+    def test_takes_per_message_effort(self):
+        self.assertTrue(models.supports_per_message_effort("claude-opus-5-5"))
+        self.assertTrue(models.supports_effort("claude-opus-5-5"))
+        self.assertEqual(models.accepted_levels("claude-opus-5-5"), models._LEVELS)
+
+    def test_verdict_keeps_its_explicit_level(self):
+        self.assertEqual(models.request_options("verdict", "claude-opus-5-5"),
+                         {"output_config": {"effort": "high"}})
+
+    def test_generation_top_level_stays_pinned(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5-5"}):
+            sent = {json.dumps(models.request_options(step), sort_keys=True)
+                    for step in models.GENERATION_STEPS}
+        self.assertEqual(sent, {"{}"})
 
 
 def usage(**fields):
@@ -173,6 +218,8 @@ def usage(**fields):
 
 class Prices(unittest.TestCase):
     def test_longest_name_wins(self):
+        self.assertEqual(models.rates("claude-opus-5-5"), (4.0, 20.0))
+        self.assertEqual(models.rates("claude-opus-5"), (5.0, 25.0))
         self.assertEqual(models.rates("claude-fable-5-1"), (10.0, 50.0))
         self.assertEqual(models.rates("claude-fable-5"), (10.0, 50.0))
         self.assertEqual(models.rates("anthropic.claude-opus-5"), (5.0, 25.0))
@@ -205,6 +252,21 @@ class Prices(unittest.TestCase):
         spend = models.Spend()
         spend.add("claude-fable-5-1", usage(cache_read_input_tokens=1_000_000))
         self.assertAlmostEqual(spend.dollars(), 0.25)
+
+    def test_read_rates_per_model(self):
+        for model, dollars in (("claude-opus-5-5", 0.20), ("claude-mythos-5-1", 0.25),
+                               ("claude-opus-5", 0.50), ("claude-sonnet-5", 0.20)):
+            spend = models.Spend()
+            spend.add(model, usage(cache_read_input_tokens=1_000_000))
+            self.assertAlmostEqual(spend.dollars(), dollars, msg=model)
+
+    def test_opus_5_5_one_hour_write(self):
+        spend = models.Spend()
+        spend.add("claude-opus-5-5", usage(
+            cache_creation_input_tokens=1_000_000,
+            cache_creation=SimpleNamespace(ephemeral_5m_input_tokens=0,
+                                           ephemeral_1h_input_tokens=1_000_000)))
+        self.assertAlmostEqual(spend.dollars(), 8.0)
 
     def test_unknown_model_gives_no_number(self):
         spend = models.Spend()
