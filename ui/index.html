@@ -470,12 +470,11 @@ const $ = s => document.querySelector(s);
 let started = 0, timer = null;
 
 const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-// The resume comes two ways from one text: the single-column PDF to upload,
-// and the two-column design, for people rather than parsers. The factuality
-// review label stays so runs from before it was removed still read cleanly.
+// The designed-copy and factuality review labels stay so runs from before they
+// were removed still read cleanly; neither is produced any more.
 const LABELS = {
-  "tailored_resume.pdf":"Resume (upload this)",
-  "resume_designed.pdf":"Resume (designed, for people)",
+  "tailored_resume.pdf":"Resume",
+  "resume_designed.pdf":"Resume (designed, older run)",
   "cover_letter.pdf":"Cover letter",
   "application_strategy.pdf":"Strategy", "evidence_map.pdf":"Evidence map",
   "factuality_review.pdf":"Factuality review", "ats_report.pdf":"ATS report"
@@ -497,8 +496,7 @@ function atsChip(score, target) {
 // The API addresses a document by key, never by filename, so the server
 // decides which file an edit touches.
 const KEYS = {
-  "tailored_resume.pdf":"resume",
-  "resume_designed.pdf":"resume", "cover_letter.pdf":"cover_letter",
+  "tailored_resume.pdf":"resume", "cover_letter.pdf":"cover_letter",
   "application_strategy.pdf":"strategy", "evidence_map.pdf":"evidence_map",
   "factuality_review.pdf":"factuality_review"
 };

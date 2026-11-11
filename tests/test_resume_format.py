@@ -126,8 +126,8 @@ class AtsRules(unittest.TestCase):
 
 class Rendering(unittest.TestCase):
     def setUp(self):
-        self.html = documents.render_resume_html(LABELLED)
-        self.items = re.findall(r"<li>(.*?)</li>", self.html)
+        self.html = documents.render_resume_ats_html(LABELLED)
+        self.items = re.findall(r"<li>\u2022 (.*?)</li>", self.html)
 
     def test_a_label_becomes_bold_inside_the_bullet(self):
         experience = [i for i in self.items if "—" in i]

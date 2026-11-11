@@ -6,15 +6,9 @@ those separate matters — the writing prompts stay about content, and how a
 resume looks is a styling decision made once here rather than negotiated with a
 model on every run.
 
-The resume is rendered two ways from the same markdown:
-
-    ATS_CSS       tailored_resume.pdf — one column, no tables, bullets as text.
-                  The copy to upload. A screening system reads a page as one
-                  stream, and this layout is that stream.
-    DOCUMENT_CSS  resume_designed.pdf — the two-column design. For people:
-                  a referral, an email to a hiring manager, a printout. Not for
-                  upload, because a parser reads two columns as one and fuses
-                  them (tests/test_documents.py shows it on this very layout).
+The resume is rendered once, by ATS_CSS: tailored_resume.pdf — one column, no
+tables, bullets as text. A screening system reads a page as one stream, and
+this layout is that stream.
 
 Plus LETTER_CSS for the cover letter, and REPORT_CSS for the internal working
 documents — evidence map, strategy, ATS report — which are
@@ -43,82 +37,6 @@ hr { display: none; }
 # --------------------------------------------------------------------------
 # Resume and cover letter
 # --------------------------------------------------------------------------
-
-# --------------------------------------------------------------------------
-# Resume — two-column template
-#
-# Geometry and colour sampled from the supplied template PDF: Letter, 0.6in
-# margins, header rule at 1.38in, sidebar/main divider at 2.77in (a 30/70
-# split), accent #ae1800, text #201e1d, secondary #696767, rules #d8d7d7 on a
-# #f3f2f2 ground.
-#
-# Everything is in em so the whole sheet still scales from one number, which is
-# what lets fit_pdf() land it on one page without cutting content.
-# --------------------------------------------------------------------------
-
-ACCENT, INK, MUTED, RULE, GROUND = "#ae1800", "#201e1d", "#696767", "#d8d7d7", "#f3f2f2"
-
-# Which sections live in the narrow left column. Everything else goes right.
-SIDEBAR_SECTIONS = {"profile", "summary", "skills", "education", "recognition",
-                    "languages", "certifications", "awards"}
-
-
-def DOCUMENT_CSS(pt, margin):
-    """Resume styling at a given body size."""
-    return f"""
-@page {{ size: Letter; margin: {margin}; background: {GROUND}; }}
-* {{ box-sizing: border-box; }}
-body {{ margin: 0; background: {GROUND}; color: {INK};
-       font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-       font-size: {pt}pt; line-height: 1.4; }}
-a {{ color: {ACCENT}; text-decoration: none; }}
-strong {{ font-weight: 700; }}
-
-/* ---- header ---- */
-.head {{ display: table; width: 100%; }}
-.head .who, .head .contact {{ display: table-cell; vertical-align: bottom; }}
-.head .who {{ width: 48%; }}
-.head .contact {{ text-align: right; font-size: 0.84em; color: {MUTED}; line-height: 1.55; }}
-.name {{ font-size: 2.5em; font-weight: 700; letter-spacing: -0.015em;
-        margin: 0; color: {INK}; white-space: nowrap; }}
-.title {{ font-size: 1.02em; font-weight: 600; color: {ACCENT}; margin: 0.15em 0 0; }}
-.rule {{ border-bottom: 1.1pt solid {INK}; margin: 0.75em 0 1.1em; }}
-
-/* ---- two columns ---- */
-.body {{ display: table; width: 100%; }}
-.side, .main {{ display: table-cell; vertical-align: top; }}
-.side {{ width: 30%; padding-right: 0.9em; }}
-.main {{ border-left: 0.7pt solid {RULE}; padding-left: 1.15em; }}
-
-/* ---- section headings ---- */
-h2 {{ font-size: 0.79em; font-weight: 700; letter-spacing: 0.14em;
-     text-transform: uppercase; color: {ACCENT};
-     margin: 0 0 0.55em; page-break-after: avoid; }}
-.side section, .main section {{ margin-bottom: 1.35em; }}
-.side section:last-child, .main section:last-child {{ margin-bottom: 0; }}
-
-/* ---- job entries ---- */
-.job {{ margin-bottom: 0.95em; page-break-inside: avoid; }}
-.job + .job {{ border-top: 0.7pt solid {RULE}; padding-top: 0.85em; }}
-.jobhead {{ display: table; width: 100%; margin-bottom: 0.4em; }}
-.jobtitle, .jobdate {{ display: table-cell; vertical-align: baseline; }}
-.jobtitle {{ font-size: 1.06em; font-weight: 700; color: {INK}; line-height: 1.3; }}
-.jobdate {{ text-align: right; white-space: nowrap; color: {MUTED};
-           font-size: 0.88em; padding-left: 0.6em; }}
-.jobnote {{ color: {MUTED}; font-size: 0.88em; margin: -0.2em 0 0.35em; }}
-
-/* ---- text ---- */
-p {{ margin: 0 0 0.5em; }}
-p:last-child {{ margin-bottom: 0; }}
-ul {{ margin: 0; padding-left: 1.05em; list-style-type: disc; }}
-li {{ margin-bottom: 0.34em; padding-left: 0.15em; }}
-li:last-child {{ margin-bottom: 0; }}
-li::marker {{ color: {INK}; }}
-.side li {{ margin-bottom: 0.28em; }}
-.side p {{ color: {INK}; }}
-.muted {{ color: {MUTED}; }}
-"""
-
 
 def ATS_CSS(pt, margin):
     """The upload copy: one column, in document order, nothing a parser can
@@ -205,22 +123,18 @@ _RESUME_LADDER = [(9.6, "0.55in 0.6in"), (9.3, "0.5in 0.55in"), (9.0, "0.5in 0.5
 
 LADDERS = {
     "resume": _RESUME_LADDER,
-    "resume_designed": _RESUME_LADDER,
     "letter": [(10.8, "0.9in 0.95in"), (10.5, "0.85in 0.9in"), (10.2, "0.8in 0.85in"),
                (9.9, "0.75in 0.8in"), (9.6, "0.7in 0.75in"), (9.3, "0.65in 0.7in"),
                (9.0, "0.6in 0.7in")],
 }
-BUILDERS = {"resume": lambda pt, margin: ATS_CSS(pt, margin),
-            "resume_designed": DOCUMENT_CSS, "letter": LETTER_CSS}
+BUILDERS = {"resume": ATS_CSS, "letter": LETTER_CSS}
 
 
 # --------------------------------------------------------------------------
-# Resume markdown -> two-column HTML
+# Resume markdown -> parsed sections
 #
-# The model writes a flat document; the template is two columns. Rather than
-# ask the model to emit HTML or guess at layout, it writes a known set of
-# sections and this router decides which column each one belongs in. Layout
-# stays a decision made once, in code.
+# The model writes a flat document with a known set of sections. It is parsed
+# here so layout stays a decision made once, in code.
 # --------------------------------------------------------------------------
 
 def _visible_url(href: str) -> str:
@@ -301,46 +215,6 @@ def _parse_resume(md: str) -> dict:
     return doc
 
 
-def _render_blocks(blocks: list) -> str:
-    html = []
-    for block in blocks:
-        if block["kind"] == "job":
-            head = (f'<div class="jobhead"><span class="jobtitle">{_inline(block["title"])}</span>'
-                    f'<span class="jobdate">{_inline(block["dates"])}</span></div>')
-            note = f'<p class="jobnote">{_inline(block["note"])}</p>' if block["note"] else ""
-            items = ("<ul>" + "".join(f"<li>{_inline(i)}</li>" for i in block["items"]) + "</ul>"
-                     if block["items"] else "")
-            html.append(f'<div class="job">{head}{note}{items}</div>')
-        elif block["kind"] == "list":
-            html.append("<ul>" + "".join(f"<li>{_inline(i)}</li>" for i in block["items"]) + "</ul>")
-        else:
-            html.append(f"<p>{_inline(block['text'])}</p>")
-    return "".join(html)
-
-
-def render_resume_html(md: str) -> str:
-    """Build the two-column resume page."""
-    doc = _parse_resume(md)
-
-    side, main = [], []
-    for section in doc["sections"]:
-        target = side if section["heading"].strip().lower() in SIDEBAR_SECTIONS else main
-        target.append(f'<section><h2>{_inline(section["heading"])}</h2>'
-                      f'{_render_blocks(section["blocks"])}</section>')
-
-    title = f'<p class="title">{_inline(doc["title"])}</p>' if doc["title"] else ""
-    contact = f'<div class="contact">{_inline(doc["contact"])}</div>' if doc["contact"] else ""
-
-    return (
-        "<!doctype html><html><head><meta charset='utf-8'></head><body>"
-        f'<div class="head"><div class="who"><h1 class="name">{_inline(doc["name"])}</h1>'
-        f'{title}</div>{contact}</div><div class="rule"></div>'
-        f'<div class="body"><div class="side">{"".join(side)}</div>'
-        f'<div class="main">{"".join(main)}</div></div>'
-        "</body></html>"
-    )
-
-
 # --------------------------------------------------------------------------
 # Resume markdown -> single column, for upload
 # --------------------------------------------------------------------------
@@ -414,7 +288,7 @@ def fit_pdf(markdown_text, path, style, max_pages=1):
     Returns (pages, body_pt). Content is never altered — if even the tightest
     setting overruns, the document is left there and the caller is told.
     """
-    builders = {"resume": render_resume_ats_html, "resume_designed": render_resume_html}
+    builders = {"resume": render_resume_ats_html}
     html = builders.get(style, _html)(markdown_text)
     ladder, build = LADDERS[style], BUILDERS[style]
     for pt, margin in ladder:

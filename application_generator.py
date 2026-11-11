@@ -72,11 +72,9 @@ SOURCES_FILE = "sources.json"
 ATS_FILE = "ats.json"
 ATS_REPORT = "ats_report.pdf"
 
-# The resume is one markdown source rendered two ways (see documents.py).
-# tailored_resume.pdf is the single-column upload copy and the one sources.json
-# names; the designed copy is always rebuilt from the same text beside it.
+# The resume is rendered once, as the single-column upload copy (see
+# documents.py), and it is the file sources.json names.
 RESUME_PDF = "tailored_resume.pdf"
-RESUME_DESIGNED = "resume_designed.pdf"
 
 
 def _generation_facts() -> str:
@@ -380,8 +378,7 @@ NONE must not be papered over.
 Emit EXACTLY this structure. It is set in one column, in this order, as the
 copy uploaded to applicant tracking systems — a screening system reads the page
 as one stream of text and files each section by its heading, so the headings,
-their order and the first three lines all matter. The same text is also set as
-a two-column designed copy for people.
+their order and the first three lines all matter.
 
 # <full name>
 **<the posting's exact job title — see "The title line" below>**
@@ -478,8 +475,7 @@ Rules for that structure:
   entry marked `include: "when_relevant"` only when its `use_when` genuinely
   fits this posting. Newest first. Where the bank gives only a year, write
   only the year; never invent a month.
-- Keep Summary and Skills short: the designed copy sets Summary, Skills and
-  Education in a narrow column that must not outrun the one beside it.
+- Keep Summary and Skills short: the whole resume has to fit on one page.
 - Omit Projects entirely if nothing there answers a requirement.
 - No other top-level sections.
 
@@ -692,35 +688,6 @@ def _atomic(path: str, render) -> None:
             os.remove(draft)
 
 
-def render_resume_companions(markdown_text: str, run_dir: str, pt: float = None) -> dict:
-    """Write the two-column designed copy of a resume.
-
-    Called wherever the upload PDF is rendered — at generation and after every
-    edit — so the two copies can never describe different resumes.
-
-    It is not allowed to fail the caller. At generation this runs after every
-    model call has been paid for, and an extra copy that cannot be written must
-    not throw away the run — the upload PDF, the letter and the reports still
-    land. Whatever went wrong is returned instead.
-
-    Returns {"written": [file, ...], "problems": [line, ...],
-    "designed_pages": n or None, "designed_pt": pt or None}.
-    """
-    result = {"written": [], "problems": [], "designed_pages": None, "designed_pt": None}
-
-    def designed(draft):
-        result["designed_pages"], result["designed_pt"] = fit_pdf(
-            markdown_text, draft, "resume_designed")
-
-    try:
-        _atomic(os.path.join(run_dir, RESUME_DESIGNED), designed)
-        result["written"].append(RESUME_DESIGNED)
-    except Exception as exc:
-        result["problems"].append(
-            f"{RESUME_DESIGNED} could not be written ({type(exc).__name__}: {exc}).")
-    return result
-
-
 def render_document(markdown_text: str, path: str, style: str) -> tuple:
     """Render one document to its final PDF. Returns (pages, body_pt).
 
@@ -757,8 +724,6 @@ def write_ats_report(run_dir: str, data: dict, resume_md: str, letter_md: str) -
             ats.pdf_text_check(os.path.join(run_dir, RESUME_PDF), resume_scored["matched"]),
             data.get("rephrasing_pass"),
             order=ats.reading_order(os.path.join(run_dir, RESUME_PDF), resume_md),
-            designed=(ats.reading_order(os.path.join(run_dir, RESUME_DESIGNED), resume_md)
-                      if os.path.isfile(os.path.join(run_dir, RESUME_DESIGNED)) else None),
         )
         scores["resume"] = resume_scored["score"]
         scores["cover_letter"] = letter_scored["score"] if letter_scored else None
@@ -959,14 +924,6 @@ def generate_application_package(
                 progress(f"{name}: {pages} pages even at {pt}pt — too much content to fit")
             else:
                 progress(f"{name}: fitted to one page at {pt}pt")
-        if style == "resume":
-            extra = render_resume_companions(body, run_dir, pt)
-            if RESUME_DESIGNED in extra["written"]:
-                files["resume_designed"] = os.path.join(run_dir, RESUME_DESIGNED)
-                progress(f"{RESUME_DESIGNED}: {extra['designed_pages']} page(s) "
-                         f"at {extra['designed_pt']}pt")
-            for problem in extra["problems"]:
-                progress(problem)
         files[key] = path
 
     # The ATS report: scores on the final text, the checks a parser cares

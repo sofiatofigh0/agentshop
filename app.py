@@ -35,7 +35,7 @@ import lessons
 
 from application_generator import (
     ATS_FILE, OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
-    render_resume_companions, write_ats_report,
+    write_ats_report,
 )
 
 app = Flask(__name__, static_folder=None)
@@ -269,20 +269,7 @@ def write_document(folder: str, key: str):
         return jsonify({"error": f"Could not render that text: {exc}"}), 400
     os.replace(draft, final)
 
-    # A resume is two files from one text: the upload PDF just written, and the
-    # designed copy beside it. That copy is rebuilt now so it does not go on
-    # describing the resume as it was before this edit. The save above has
-    # already succeeded, so a failure here is reported, not raised.
     warning = None
-    if entry["style"] == "resume":
-        try:
-            problems = render_resume_companions(markdown_text, run_dir, pt)["problems"]
-        except Exception as exc:
-            problems = [f"the designed copy could not be rebuilt "
-                        f"({type(exc).__name__})."]
-        if problems:
-            warning = ("Saved, but " + " ".join(problems)
-                       + " It still shows the previous text.")
 
     before = entry["markdown"]
     entry["markdown"] = markdown_text

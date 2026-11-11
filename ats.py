@@ -822,8 +822,7 @@ def _rephrasing_note(candidates: list, pass_info: dict, target: int) -> str:
 
 def report(extracted: dict, resume: dict, letter: dict, target: int,
            candidates: list, gaps: list, checks: list, title: dict,
-           pdf: dict, pass_info: dict = None, order: dict = None,
-           designed: dict = None) -> str:
+           pdf: dict, pass_info: dict = None, order: dict = None) -> str:
     """The markdown behind ats_report.pdf."""
     keywords = extracted.get("keywords") or []
     if not keywords:
@@ -938,15 +937,6 @@ def report(extracted: dict, resume: dict, letter: dict, target: int,
             ("Upload copy: " + order["detail"] + "." if order["ok"]
              else f"Upload copy: {order['detail']}. A parser would read this page "
                   "scrambled; check the layout before uploading it."),
-            "",
-        ]
-    if designed:
-        lines += [
-            ("Designed copy: " + designed["detail"] + "." if designed["ok"]
-             else f"Designed copy (two columns): {designed['detail']}. That is what a "
-                  "parser makes of two columns, which is why this copy is for people — "
-                  "email, referrals, print — and the single-column PDF or the .docx is "
-                  "the one to upload."),
             "",
         ]
 

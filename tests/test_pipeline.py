@@ -139,14 +139,13 @@ class Pipeline(unittest.TestCase):
         run_dir = package["run_dir"]
         self.assertEqual(sorted(f for f in os.listdir(run_dir) if f.endswith(".pdf")),
                          ["application_strategy.pdf", "ats_report.pdf", "cover_letter.pdf",
-                          "evidence_map.pdf", "resume_designed.pdf", "tailored_resume.pdf"])
+                          "evidence_map.pdf", "tailored_resume.pdf"])
         for name in (gen.ATS_FILE, gen.SOURCES_FILE, "run.json"):
             self.assertTrue(os.path.isfile(os.path.join(run_dir, name)), name)
         self.assertEqual(set(package["files"]),
-                         {"resume", "resume_designed", "cover_letter", "evidence_map",
+                         {"resume", "cover_letter", "evidence_map",
                           "strategy", "ats_report"})
-        # sources.json names the upload copy only; the designed copy derives
-        # from it. The kept draft is the reworded one.
+        # sources.json names the resume PDF. The kept draft is the reworded one.
         with open(os.path.join(run_dir, gen.SOURCES_FILE)) as handle:
             sources = json.load(handle)
         self.assertEqual(sources["resume"]["file"], "tailored_resume.pdf")
@@ -174,27 +173,6 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(sorted(set(fake.steps)),
                          ["cover_letter", "evidence_map", "phrasing", "resume", "strategy"])
         self.assertFalse(os.path.exists(os.path.join(package["run_dir"], "factuality_review.pdf")))
-
-    def test_a_failed_designed_copy_never_costs_the_run(self):
-        """The designed copy is rendered after every model call has been paid
-        for, so a failure there must leave the rest of the run intact."""
-        real_fit = gen.fit_pdf
-
-        def fit(markdown_text, path, style, **kwargs):
-            if style == "resume_designed":
-                raise RuntimeError("layout broke")
-            return real_fit(markdown_text, path, style, **kwargs)
-
-        with mock.patch.object(gen, "fit_pdf", fit):
-            package = self.run_pipeline(Fake())
-        run_dir = package["run_dir"]
-        self.assertFalse(os.path.exists(os.path.join(run_dir, "resume_designed.pdf")))
-        for name in ("tailored_resume.pdf", "cover_letter.pdf", "ats_report.pdf",
-                     "run.json", gen.SOURCES_FILE):
-            self.assertTrue(os.path.isfile(os.path.join(run_dir, name)), name)
-        self.assertNotIn("resume_designed", package["files"])
-        self.assertTrue(any("resume_designed.pdf could not be written" in line
-                            for line in self.progress))
 
     def test_no_rephrasing_when_already_at_target(self):
         fake = Fake(resume=FULL)

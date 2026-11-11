@@ -374,7 +374,7 @@ class Checks(unittest.TestCase):
         self.assertIn("skills", checks["Standard section headings"]["detail"])
         self.assertFalse(checks["Dates on every role"]["ok"])
 
-    def test_terms_survive_the_two_column_pdf(self):
+    def test_terms_survive_the_resume_pdf(self):
         """A screener reads the PDF. The matched terms must come back out of it."""
         scored = ats.score(KEYWORDS, RESUME)
         with tempfile.TemporaryDirectory() as tmp:
@@ -571,15 +571,13 @@ class Report(unittest.TestCase):
         self.assertIn('"a/b tests" where the posting says **a/b testing**', text)
         self.assertIn("carries the posting's title word for word", text)
 
-    def test_report_explains_the_designed_copy(self):
+    def test_report_states_the_reading_order(self):
         resume = ats.score(KEYWORDS, RESUME)
         text = ats.report({"title": "", "keywords": KEYWORDS}, resume, None, 75, [], [], [],
                           ats.title_match("", RESUME), {"ok": True, "lost": [], "detail": ""},
-                          None, order={"ok": True, "detail": "sections read back in order"},
-                          designed={"ok": False, "detail": "3 printed line(s) join two blocks"})
+                          None, order={"ok": True, "detail": "sections read back in order"})
         self.assertIn("Upload copy: sections read back in order.", text)
-        self.assertIn("Designed copy (two columns)", text)
-        self.assertIn("the one to upload", text)
+        self.assertNotIn("Designed copy", text)
 
     def test_report_without_keywords(self):
         text = ats.report({"title": "", "keywords": []}, None, None, 75, [], [], [], {}, {})

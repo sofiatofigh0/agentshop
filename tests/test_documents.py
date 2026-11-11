@@ -1,11 +1,7 @@
-"""The two renders of a resume, and what a parser makes of each.
+"""The resume render, and what a parser makes of it.
 
-The upload copy — the single-column PDF — is tested for the things a screening
-system trips on: reading order, text-only bullets, contact details in the body,
-no tables. The two-column designed copy is tested for the opposite:
-that it really does scramble when read as one stream, which is the reason it
-is not the upload copy. If that test ever starts failing, the layout changed
-and the advice in the UI should be revisited.
+The single-column PDF is tested for the things a screening system trips on:
+reading order, text-only bullets, contact details in the body, no tables.
 """
 
 import os
@@ -78,16 +74,14 @@ class UploadPdf(unittest.TestCase):
 
 
 class ReadingOrder(unittest.TestCase):
-    """The claim that two columns scramble, checked on this project's own layouts."""
+    """The resume PDF reads back as one stream, in the order it was written."""
 
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.results = {}
-        for style in ("resume", "resume_designed"):
-            path = os.path.join(cls.tmp.name, f"{style}.pdf")
-            pages, _ = documents.fit_pdf(RESUME, path, style)
-            cls.results[style] = (pages, ats.reading_order(path, RESUME), path)
+        path = os.path.join(cls.tmp.name, "resume.pdf")
+        pages, _ = documents.fit_pdf(RESUME, path, "resume")
+        cls.results = {"resume": (pages, ats.reading_order(path, RESUME), path)}
 
     @classmethod
     def tearDownClass(cls):
@@ -99,11 +93,9 @@ class ReadingOrder(unittest.TestCase):
         self.assertTrue(order["ok"], order)
         self.assertEqual(order["fused_rows"], 0)
 
-    def test_the_designed_copy_scrambles_which_is_why_it_is_not_uploaded(self):
-        pages, order, _ = self.results["resume_designed"]
-        self.assertEqual(pages, 1)
-        self.assertFalse(order["in_order"])      # the sidebar's Education jumps ahead
-        self.assertGreater(order["fused_rows"], 0)  # rows fuse the two columns
+    def test_no_two_column_copy_is_offered(self):
+        self.assertNotIn("resume_designed", documents.LADDERS)
+        self.assertFalse(hasattr(documents, "render_resume_html"))
 
     def test_every_term_survives_extraction_from_the_upload_copy(self):
         _, _, path = self.results["resume"]

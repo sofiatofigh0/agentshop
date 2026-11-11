@@ -125,32 +125,25 @@ class EditRescores(unittest.TestCase):
         response = self.client.put("/api/document/../etc/resume", json={"markdown": "x"})
         self.assertIn(response.status_code, (400, 404))
 
-    def test_a_resume_edit_rebuilds_the_designed_copy(self):
-        """Two copies from one text: neither may describe the resume as it was."""
+    def test_a_resume_edit_rebuilds_only_the_upload_copy(self):
         from pypdf import PdfReader
         edited = RESUME.replace("Owned the roadmap", "Owned the product roadmap")
         response = self.client.put(f"/api/document/{self.folder}/resume",
                                    json={"markdown": edited, "note": ""})
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertIsNone(response.get_json()["warning"])
-        designed = os.path.join(self.run_dir, "resume_designed.pdf")
-        text = " ".join((p.extract_text() or "") for p in PdfReader(designed).pages)
+        upload = os.path.join(self.run_dir, "tailored_resume.pdf")
+        text = " ".join((p.extract_text() or "") for p in PdfReader(upload).pages)
         self.assertIn("product roadmap", " ".join(text.split()))
+        self.assertFalse(os.path.exists(os.path.join(self.run_dir, "resume_designed.pdf")))
         self.assertFalse(os.path.exists(os.path.join(self.run_dir, "tailored_resume.docx")))
 
-    def test_a_companion_failure_is_a_warning_not_a_failed_save(self):
-        with mock.patch.object(server, "render_resume_companions",
-                               side_effect=RuntimeError("layout broke")):
-            response = self.client.put(f"/api/document/{self.folder}/resume",
-                                       json={"markdown": RESUME + "\n", "note": ""})
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("could not be rebuilt", response.get_json()["warning"])
-
-    def test_history_lists_the_designed_copy_and_only_pdfs(self):
+    def test_history_lists_only_pdfs(self):
         self.client.put(f"/api/document/{self.folder}/resume",
                         json={"markdown": RESUME + "\n", "note": ""})
         files = self.client.get("/api/history").get_json()[0]["files"]
-        self.assertIn("resume_designed.pdf", files)
+        self.assertIn("tailored_resume.pdf", files)
+        self.assertNotIn("resume_designed.pdf", files)
         self.assertTrue(all(f.endswith(".pdf") for f in files), files)
 
     def test_a_saved_edit_is_never_reported_as_a_failed_one(self):

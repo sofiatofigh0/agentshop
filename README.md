@@ -204,7 +204,7 @@ before anything changed. Here is what was adopted and what was not.
 
 | Claim | What changed |
 |---|---|
-| Two columns get scrambled | Measured, not assumed: this project's own two-column PDF reads back with Education ahead of Experience, and with each row fusing a line from the sidebar to a line from the main column. The upload copy is now one column, and `tests/test_documents.py` keeps both results as a regression guard. |
+| Two columns get scrambled | Measured, not assumed: this project's own two-column PDF reads back with Education ahead of Experience, and with each row fusing a line from the sidebar to a line from the main column. The resume is now one column only (the two-column copy was removed), and `tests/test_documents.py` checks that it reads back in order. |
 | Match the exact job title | The title line is the posting's own title, word for word, or its core when the full title will not fit. The Summary's first sentence repeats it. It never overstates seniority: a "Director of Product" posting gets "Senior Product Manager". |
 | Exact words, not synonyms | Scoring now counts only the posting's own term. A resume that says it another way is shown the exact rewording, and those rewordings go to the rephrasing pass first. |
 | Standard headings, fixed order | Summary, Work Experience, Education, Projects, Skills — always in that order (Projects may be omitted; the rest keep their order). The report flags any heading a parser would have to guess at. |
@@ -228,14 +228,12 @@ before anything changed. Here is what was adopted and what was not.
   single upload format. The PDF is text-based and tested to read back in order,
   which the write-up itself says modern systems handle.
 
-### The two resume copies
+### One resume copy
 
-| File | Layout | Use it for |
-|---|---|---|
-| `tailored_resume.pdf` | one column | uploading |
-| `resume_designed.pdf` | two columns | people — a referral, an email to a hiring manager, print |
-
-Both come from one markdown source, and an edit in the UI rebuilds both.
+The resume is a single file, `tailored_resume.pdf`: one column, built for
+upload, and the same copy to send to people. An earlier version also wrote a
+two-column `resume_designed.pdf`; it was removed so there is one resume to
+check and send. An edit in the UI rebuilds it from its markdown source.
 
 ## Eval design
 
