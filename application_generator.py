@@ -55,7 +55,7 @@ import lessons
 import models
 
 from candidate_profile import CANDIDATE_PROFILE
-from experience_bank import EXPERIENCE_BANK, missing_fields
+from experience_bank import EXPERIENCE_BANK, IDENTITY, missing_fields
 from models import Spend, cache_control, main_model, request_options, worker_model
 
 # Python owns the output paths. The model never chooses where anything is saved.
@@ -382,7 +382,8 @@ their order and the first three lines all matter.
 
 # <full name>
 **<the posting's exact job title — see "The title line" below>**
-<one contact line, items separated by " · ">
+<location> | <phone> | <email>
+<linkedin> | <portfolio>
 
 ## Summary
 <three or four lines of prose, aimed at this role; the first sentence uses the
@@ -433,9 +434,11 @@ The title line:
   because some systems weight the summary as heavily as the headline.
 
 Rules for that structure:
-- The contact line must include the portfolio URL and, when one is set, its
-  password, since a gated link without the password is worse than no link.
-  Write every URL as plain text (sofia-tofigh.netlify.app), never as a
+- The two contact lines are rewritten in code from the identity block after
+  you write them, so a parser always finds the phone, email and LinkedIn
+  where it looks for them. Write them as shown anyway, and never put contact
+  details anywhere else in the resume.
+- Write every URL as plain text (sofia-tofigh.netlify.app), never as a
   markdown link: a parser stores the text it can read, not the link behind a
   label.
 - Use exactly the section headings shown, in exactly that order — Summary,
@@ -719,7 +722,9 @@ def write_ats_report(run_dir: str, data: dict, resume_md: str, letter_md: str) -
         candidates, real_gaps = ats.bank_supported(resume_scored["missing"], BANK_PROSE)
         report = ats.report(
             data, resume_scored, letter_scored, data.get("target"),
-            candidates, real_gaps, ats.format_checks(resume_md),
+            candidates, real_gaps,
+            ats.format_checks(resume_md)
+            + [ats.pdf_contact_check(os.path.join(run_dir, RESUME_PDF))],
             ats.title_match(data.get("title", ""), resume_md),
             ats.pdf_text_check(os.path.join(run_dir, RESUME_PDF), resume_scored["matched"]),
             data.get("rephrasing_pass"),
@@ -750,6 +755,73 @@ def _write_json(path: str, payload) -> None:
     os.replace(draft, path)
 
 
+# --------------------------------------------------------------------------
+# Contact block — written in code, never left to the model
+#
+# A tracking system (Ashby, Greenhouse, Lever, Workday) fills its phone, email
+# and LinkedIn fields by pattern-matching the top of the page. The model used
+# to write that line itself, and it dropped whatever it judged inessential:
+# runs went out with a location and a LinkedIn link and nothing else. So the
+# block is rebuilt from the identity block on every generated resume.
+#
+# Two short lines rather than one long one, so no item wraps across a line
+# break, and " | " between items: a plain ASCII separator that every
+# extractor reads as a boundary.
+# --------------------------------------------------------------------------
+
+CONTACT_SEPARATOR = " | "
+
+
+def _bare_url(url: str) -> str:
+    """linkedin.com/in/name: no scheme, no www, no trailing slash."""
+    return re.sub(r"^https?://(www\.)?", "", (url or "").strip()).rstrip("/")
+
+
+def contact_lines(identity: dict = None) -> list:
+    """The resume's contact block, from the identity block. Empty fields are
+    left out rather than invented."""
+    identity = IDENTITY if identity is None else identity
+    portfolio = _bare_url(identity.get("portfolio", ""))
+    if portfolio and identity.get("portfolio_password"):
+        portfolio += f" (password: {identity['portfolio_password']})"
+    rows = [
+        [identity.get("location", ""), identity.get("phone", ""), identity.get("email", "")],
+        [_bare_url(identity.get("linkedin", "")), portfolio],
+    ]
+    lines = [CONTACT_SEPARATOR.join(i.strip() for i in row if i and i.strip())
+             for row in rows]
+    return [line for line in lines if line]
+
+
+def with_contact(resume_md: str, identity: dict = None) -> str:
+    """Replace whatever contact lines the model wrote with the canonical ones.
+
+    The header is everything between the name and the first section: the
+    bold title line stays, every other line there is contact detail and is
+    replaced. A draft with no name line is returned unchanged.
+    """
+    lines = resume_md.splitlines()
+    name = next((i for i, l in enumerate(lines) if l.startswith("# ")), None)
+    if name is None:
+        return resume_md
+    first_section = next((i for i, l in enumerate(lines)
+                          if i > name and l.startswith("## ")), len(lines))
+    header = lines[name + 1:first_section]
+    title = [l for l in header if l.strip().startswith("**")][:1]
+    rebuilt = title + contact_lines(identity) + [""]
+    trailing = "\n" if resume_md.endswith("\n") else ""
+    return "\n".join(lines[:name + 1] + rebuilt + lines[first_section:]) + trailing
+
+
+def missing_contact(identity: dict = None) -> list:
+    """Which of the fields a parser looks for are blank. Names only — the
+    values are never printed."""
+    identity = IDENTITY if identity is None else identity
+    env = {"email": "CANDIDATE_EMAIL", "phone": "CANDIDATE_PHONE"}
+    return [env.get(f, f) for f in ("email", "phone", "linkedin")
+            if not (identity.get(f) or "").strip()]
+
+
 def generate_application_package(
     job_description: str, recommendation: str, reasoning: str, research: str = "",
     company: str = "", role: str = "", progress=print,
@@ -769,6 +841,12 @@ def generate_application_package(
             "Fill them in before generating application materials: the agent "
             "will not invent experience to fill the space."
         )
+
+    blank = missing_contact()
+    if blank:
+        progress("contact: " + ", ".join(blank) + " is blank, so the resume will go out "
+                 "without it and a tracking system has nothing to fill that field from. "
+                 "Set it in .env.")
 
     # Python owns file creation, not the model.
     run_dir = os.path.join(OUTPUT_DIR, slugify(company, role))
@@ -853,7 +931,8 @@ def generate_application_package(
     # run at the same time rather than one after another — the same calls, the
     # same cost, roughly the time of three.
     def resume_chain():
-        draft = run(write_resume(context, evidence_map, guidance + keyword_block), "resume")
+        draft = with_contact(
+            run(write_resume(context, evidence_map, guidance + keyword_block), "resume"))
         pass_info = None
 
         # One more call, only when it can honestly buy something: the draft
@@ -877,7 +956,7 @@ def generate_application_package(
                              "after": rescored["score"], "kept": kept,
                              "terms": [k["term"] for k in offered]}
                 if kept:
-                    draft = reworded
+                    draft = with_contact(reworded)
                 progress(f"ATS: resume now {rescored['score'] if kept else scored['score']}/100")
 
         progress("resume written.")

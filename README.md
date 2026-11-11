@@ -210,7 +210,7 @@ before anything changed. Here is what was adopted and what was not.
 | Standard headings, fixed order | Summary, Work Experience, Education, Projects, Skills — always in that order (Projects may be omitted; the rest keep their order). The report flags any heading a parser would have to guess at. |
 | Reverse-chronological roles | Newest first, always: parsers read the first role as the current title. A more relevant older role gets more bullets, not a higher slot. |
 | Keywords with Skills last | The Summary carries the two or three heaviest required terms the bank supports, in sentences; each requested skill also appears in a dated bullet where the bank supports it; Skills writes "Full Name (ABBR)" where the posting spells a term out. |
-| Contact details in the body | They always were: nothing uses the page margins. |
+| Contact fields a parser can fill | The phone, email and LinkedIn block is written in code from the identity block, not by the model, which used to drop the phone and email. It is two short lines with ` | ` between items, so nothing wraps mid-address, and each item is also a real `mailto:`/`tel:`/`https:` link. Ligatures are off so an `fi` in an address extracts as two letters. The ATS report checks the header has all three, and that all three come back out of the finished PDF. A run warns at the start if `CANDIDATE_EMAIL` or `CANDIDATE_PHONE` is blank. |
 | One date format | The bank already used Month Year throughout. The prompt now says why it must stay that way, and the report checks every role. |
 | No icons | Checked by Unicode category; ordinary punctuation passes. |
 

@@ -48,13 +48,17 @@ def ATS_CSS(pt, margin):
     from its line and extracts as a stray character somewhere else on the
     page. Headings keep the case they were written in. Contact details sit in
     the body — nothing uses the page margins, which some parsers skip.
+    Ligatures are off: with them, "fi" in an email address or a URL can be
+    drawn as one glyph and extract as U+FB01, and a parser no longer
+    recognises the address.
     """
     return f"""
 @page {{ size: Letter; margin: {margin}; }}
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; color: #111111;
        font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-       font-size: {pt}pt; line-height: 1.38; }}
+       font-size: {pt}pt; line-height: 1.38;
+       font-variant-ligatures: none; font-feature-settings: "liga" 0, "clig" 0; }}
 a {{ color: inherit; text-decoration: none; }}
 strong {{ font-weight: 700; }}
 
@@ -82,7 +86,8 @@ def LETTER_CSS(pt, margin):
     return BASE + f"""
 @page {{ size: Letter; margin: {margin}; }}
 body {{ font-family: Georgia, "Times New Roman", serif;
-       font-size: {pt}pt; line-height: 1.58; }}
+       font-size: {pt}pt; line-height: 1.58;
+       font-variant-ligatures: none; font-feature-settings: "liga" 0, "clig" 0; }}
 h1 {{ font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
      font-size: 1.6em; font-weight: 600; letter-spacing: 0.01em; margin: 0 0 0.25em; }}
 h1 + p {{ font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -160,7 +165,7 @@ def _inline(text: str, show_urls: bool = False) -> str:
 
 def _parse_resume(md: str) -> dict:
     """Pull the resume apart into a header and a list of sections."""
-    doc = {"name": "", "title": "", "contact": "", "sections": []}
+    doc = {"name": "", "title": "", "contact": "", "contact_lines": [], "sections": []}
     section = None
     job = None
 
@@ -179,13 +184,15 @@ def _parse_resume(md: str) -> dict:
             job = None
             continue
 
-        # Before the first section: the title line, then the contact line.
+        # Before the first section: the title line, then the contact lines.
+        # Every one is kept; a second contact line used to be dropped here.
         if section is None:
             stripped = line.strip("*")
             if line.startswith("**") and not doc["title"]:
                 doc["title"] = stripped
-            elif not doc["contact"]:
-                doc["contact"] = line
+            else:
+                doc["contact_lines"].append(line)
+                doc["contact"] = doc["contact"] or line
             continue
 
         if line.startswith("### "):
@@ -250,6 +257,41 @@ def _ats_inline(text: str) -> str:
     return _inline(text, show_urls=True)
 
 
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PHONE = re.compile(r"\+?\d[\d\s().-]{8,}\d")
+_WEB = re.compile(r"(?<![@\w.])(?:https?://)?(?:www\.)?"
+                  r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|app|io|dev|me|net|org|co|ai)"
+                  r"(?:/[^\s|()]*)?", re.I)
+
+
+def _contact_html(line: str) -> str:
+    """One contact line, with each email, phone and URL a real link.
+
+    The visible text stays exactly as written, which is what a parser reads.
+    The link behind it is a second copy some systems read as well: Ashby and
+    others take a LinkedIn profile from the PDF's link annotations.
+    """
+    line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", lambda m: _visible_url(m.group(2)), line)
+    spans = []
+    for pattern, href in ((_EMAIL, lambda t: "mailto:" + t),
+                          (_PHONE, lambda t: "tel:" + re.sub(r"[^\d+]", "", t)),
+                          (_WEB, lambda t: t if t.lower().startswith("http") else "https://" + t)):
+        for m in pattern.finditer(line):
+            if not any(m.start() < e and s < m.end() for s, e, _ in spans):
+                spans.append((m.start(), m.end(), href(m.group(0))))
+    out, at = [], 0
+    for start, end, href in sorted(spans):
+        out.append(_escape(line[at:start]))
+        out.append(f'<a href="{_escape(href)}">{_escape(line[start:end])}</a>')
+        at = end
+    out.append(_escape(line[at:]))
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", "".join(out))
+
+
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
 def render_resume_ats_html(md: str) -> str:
     """Build the single-column page, sections in the order they were written."""
     doc = _parse_resume(md)
@@ -259,7 +301,8 @@ def render_resume_ats_html(md: str) -> str:
         for s in doc["sections"]
     )
     title = f'<p class="title">{_ats_inline(doc["title"])}</p>' if doc["title"] else ""
-    contact = f'<p class="contact">{_ats_inline(doc["contact"])}</p>' if doc["contact"] else ""
+    contact = "".join(f'<p class="contact">{_contact_html(line)}</p>'
+                      for line in doc["contact_lines"])
     return (
         "<!doctype html><html><head><meta charset='utf-8'></head><body>"
         f'<h1 class="name">{_ats_inline(doc["name"])}</h1>{title}{contact}{sections}'

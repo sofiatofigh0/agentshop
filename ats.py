@@ -633,6 +633,51 @@ def decorative_characters(text: str) -> list:
     return sorted(found)
 
 
+# What a tracking system pattern-matches at the top of a resume to fill its
+# contact fields. Deliberately close to what those systems accept, so a pass
+# here means a field they would find, not merely a line that looks like one.
+CONTACT_PATTERNS = {
+    "email": re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+    "phone": re.compile(r"(?<!\d)\+?\d[\d\s().-]{8,}\d(?!\d)"),
+    "linkedin": re.compile(r"linkedin\.com/in/[A-Za-z0-9_-]+", re.I),
+}
+
+
+def contact_fields(text: str) -> dict:
+    """Which contact fields a parser would find in this text: {field: bool}.
+    The values themselves are never returned, so nothing can print them."""
+    found = {}
+    for field, pattern in CONTACT_PATTERNS.items():
+        match = pattern.search(text or "")
+        if field == "phone" and match:
+            match = match if len(re.sub(r"\D", "", match.group(0))) >= 10 else None
+        found[field] = bool(match)
+    return found
+
+
+def _missing_fields(found: dict) -> str:
+    return ", ".join(f for f, ok in found.items() if not ok)
+
+
+def pdf_contact_check(pdf_path: str) -> dict:
+    """Do the email, phone and LinkedIn come back out of the finished PDF?
+
+    The markdown can be right and the PDF still wrong — a ligature turns the
+    "fi" in an address into one character, and the address stops matching.
+    This reads the page the way a parser does.
+    """
+    try:
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(pdf_path).pages)
+    except Exception as exc:
+        return {"check": "Contact fields readable in the PDF", "ok": False,
+                "detail": f"could not read the PDF: {exc}"}
+    found = contact_fields(text)
+    ok = all(found.values())
+    return {"check": "Contact fields readable in the PDF", "ok": ok,
+            "detail": "email, phone and LinkedIn all extract" if ok
+                      else "not found when the PDF is read as text: " + _missing_fields(found)}
+
+
 def format_checks(resume_md: str) -> list:
     """Structural checks, each {"check", "ok", "detail"}.
 
@@ -662,6 +707,8 @@ def format_checks(resume_md: str) -> list:
     contact = next((l for l in header
                     if l and not l.startswith(("#", "**", "- ", "* "))), "")
 
+    header_fields = contact_fields("\n".join(header))
+
     missing = [k for k in REQUIRED_KINDS if k not in kinds]
     undated = [j for j in jobs if "|" not in j]
 
@@ -690,6 +737,10 @@ def format_checks(resume_md: str) -> list:
                    else "all recognised: " + ", ".join(h.title() for h in headings)},
         {"check": "Contact line under the name", "ok": bool(contact),
          "detail": "present" if contact else "none found"},
+        {"check": "Email, phone and LinkedIn under the name",
+         "ok": all(header_fields.values()),
+         "detail": "all three present" if all(header_fields.values())
+                   else "missing: " + _missing_fields(header_fields)},
         {"check": "Dates on every role", "ok": bool(jobs) and not undated,
          "detail": f"{len(jobs)} role(s), all dated" if jobs and not undated
                    else ("no roles found" if not jobs else f"{len(undated)} undated")},
