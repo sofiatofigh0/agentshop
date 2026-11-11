@@ -410,7 +410,7 @@ progress rather than holding an HTTP request open.
 
 When it finishes you get the verdict, the reasoning, any searches the agent
 chose to make, the ATS score of the resume and the cover letter, what the run
-cost, and links to every document — the resume two ways, the cover letter,
+cost, and links to every document — the resume, the cover letter,
 and three internal reports. Past applications stay listed down the
 right-hand side with company, role, date, verdict and score, so months later
 you can tell what each set of documents was for.
