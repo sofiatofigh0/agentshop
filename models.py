@@ -111,7 +111,6 @@ EFFORT = {
     "evidence_map": "high",    # the reasoning every document is built on
     "resume":       "medium",
     "cover_letter": "medium",
-    "strategy":     "medium",
     "phrasing":     "medium",  # rewording for the posting's vocabulary
     "search":       "low",     # summarize what a web search returned
     "keywords":     "low",     # extract the terms a screener scans for
@@ -122,7 +121,7 @@ EFFORT = {
 # top-level effort must be identical or the prefix is rewritten instead of
 # read — see this module's docstring.
 GENERATION_STEPS = frozenset({
-    "evidence_map", "resume", "phrasing", "cover_letter", "strategy",
+    "evidence_map", "resume", "phrasing", "cover_letter",
 })
 
 _LEVELS = ("low", "medium", "high", "xhigh", "max")

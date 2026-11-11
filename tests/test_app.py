@@ -79,22 +79,14 @@ class EditRescores(unittest.TestCase):
         self.assertEqual(rows[0]["ats"]["resume"], 50)
         self.assertTrue(rows[0]["editable"])
 
-    def _report_text(self):
-        from pypdf import PdfReader
-        path = os.path.join(self.run_dir, "ats_report.pdf")
-        return "\n".join(p.extract_text() or "" for p in PdfReader(path).pages)
-
-    def test_edit_rebuilds_the_report_so_it_cannot_contradict_the_score(self):
-        """The chip and the report the UI links must tell one story."""
+    def test_edit_writes_no_report_pdf(self):
         edited = RESUME.replace("Owned the roadmap",
                                 "Owned the product roadmap and the SQL reporting")
         response = self.client.put(f"/api/document/{self.folder}/resume",
                                    json={"markdown": edited, "note": ""})
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertEqual(response.get_json()["ats"], 100)
-        text = self._report_text()
-        self.assertIn("100 / 100", text)
-        self.assertIn("sql", text.lower())
+        self.assertFalse(os.path.exists(os.path.join(self.run_dir, "ats_report.pdf")))
 
     def test_edit_rescored_and_persisted(self):
         edited = RESUME.replace("Owned the roadmap", "Owned the product roadmap and the SQL reporting")

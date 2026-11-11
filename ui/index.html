@@ -470,8 +470,8 @@ const $ = s => document.querySelector(s);
 let started = 0, timer = null;
 
 const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-// The designed-copy and factuality review labels stay so runs from before they
-// were removed still read cleanly; neither is produced any more.
+// The designed-copy, strategy, ATS report and factuality review labels stay so
+// runs from before they were removed still read cleanly; none is produced now.
 const LABELS = {
   "tailored_resume.pdf":"Resume",
   "resume_designed.pdf":"Resume (designed, older run)",
@@ -751,8 +751,8 @@ async function poll(id) {
         <div class="atsrow">${atsChip(s.ats.resume, s.ats.target)} <span class="muted">resume</span>
         ${s.ats.cover_letter != null ? "&nbsp;" + atsChip(s.ats.cover_letter, s.ats.target) + ' <span class="muted">cover letter</span>' : ""}</div>
         <p class="muted" style="margin:8px 0 0">The weighted share of the posting's own terms each document
-        uses, scored the way a screening system scores it. Which terms matched, which were left out and
-        why, and the formatting checks are in the ATS report below.</p></div>`
+        uses, scored the way a screening system scores it. Any formatting check that fails is printed
+        in the run's progress log.</p></div>`
     : "";
   const cost = s.cost_usd != null
     ? `<span class="muted">&middot; this run cost about $${s.cost_usd.toFixed(2)}</span>` : "";

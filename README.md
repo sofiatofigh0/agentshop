@@ -37,7 +37,7 @@ agent.py                  orchestration, the agent loop, interactive input
 tools.py                  the search_web tool: schema + implementation
 candidate_profile.py      what Sofia wants — preferences, goals, constraints
 experience_bank.py        what Sofia has done — the factual source of truth
-application_generator.py  deterministic resume / letter / strategy pipeline
+application_generator.py  deterministic resume / letter pipeline
 ats.py                    keyword extraction and scoring, the way a screener does it
 models.py                 which model runs each step, at what effort, at what price
 lessons.py                what the candidate's own edits teach later runs
@@ -74,8 +74,8 @@ send the job description + tool definitions
 ```
 evidence map  -> resume draft -> [rephrasing pass]
 + ATS keywords
-              -> cover letter -> application strategy
-              -> ATS report (plain Python, no model)
+              -> cover letter
+              -> ATS scores and checks (plain Python, no model)
 ```
 
 The evidence map comes first deliberately. Asking for a resume directly produces
@@ -179,14 +179,11 @@ How it works, in order:
    not add a bullet, a skill, or a claim; a term the bank never mentions is a
    gap, and no call is spent on it. The reworded draft is kept only if it
    scores higher.
-5. **Report.** `ats_report.pdf` gives the score per document and per category,
-   how many of the posting's terms appear in its own words, what matched, what
-   was said in a different form, what the bank mentions but the resume does
-   not yet use, and what is not in the bank at all (the real gaps, marked *do
-   not add*). Then whether the title line carries the posting's title word for
-   word and the Summary repeats it; the parser-facing checks — standard
-   headings, one date format, no icons, a contact line; and whether each copy
-   reads back in order when a parser extracts it.
+5. **Checks.** No report file is written. The scores and the parser-facing
+   checks (standard headings, one date format, no icons, contact fields, every
+   word extractable from the PDF, reading order) are saved to `ats.json`, the
+   scores show in the terminal and the UI, and any check that fails is printed
+   in the terminal as `ATS check failed — ...`.
 
 The score is a proxy for one filter, not a measure of quality. It is shown
 beside the verdict so a low number can be understood, not so it can be chased.
@@ -210,7 +207,7 @@ before anything changed. Here is what was adopted and what was not.
 | Standard headings, fixed order | Summary, Work Experience, Education, Projects, Skills — always in that order (Projects may be omitted; the rest keep their order). The report flags any heading a parser would have to guess at. |
 | Reverse-chronological roles | Newest first, always: parsers read the first role as the current title. A more relevant older role gets more bullets, not a higher slot. |
 | Keywords with Skills last | The Summary carries the two or three heaviest required terms the bank supports, in sentences; each requested skill also appears in a dated bullet where the bank supports it; Skills writes "Full Name (ABBR)" where the posting spells a term out. |
-| Contact fields a parser can fill | The contact line is written in code from the identity block, not by the model, which used to drop the phone and email. It keeps the original one-line layout (location · email · phone · LinkedIn · portfolio), each item kept whole when the line wraps, and each is also a real `mailto:`/`tel:`/`https:` link. Ligatures are off so an `fi` in an address extracts as two letters. The ATS report checks the header has all three, that all three come back out of the finished PDF, and that every word of the resume extracts with no broken characters. A run warns at the start if `CANDIDATE_EMAIL` or `CANDIDATE_PHONE` is blank. |
+| Contact fields a parser can fill | The contact line is written in code from the identity block, not by the model, which used to drop the phone and email. It keeps the original one-line layout (location · email · phone · LinkedIn · portfolio), each item kept whole when the line wraps, and each is also a real `mailto:`/`tel:`/`https:` link. Ligatures are off so an `fi` in an address extracts as two letters. The ATS checks confirm the header has all three, that all three come back out of the finished PDF, and that every word of the resume extracts with no broken characters. A run warns at the start if `CANDIDATE_EMAIL` or `CANDIDATE_PHONE` is blank. |
 | One date format | The bank already used Month Year throughout. The prompt now says why it must stay that way, and the report checks every role. |
 | No icons | Checked by Unicode category; ordinary punctuation passes. |
 
@@ -265,26 +262,27 @@ behavior. Scoring only the verdict hides that.
 
 ## What a run costs
 
-Each run makes six to twelve model calls: one to four in the agent loop, up to
-three nested web-search summaries, and five or six in generation — the
-keyword extraction, the evidence map, the resume, the cover letter and the
-strategy, plus the rephrasing pass when the draft needs it. A run used to cost
+Each run makes five to eleven model calls: one to four in the agent loop, up to
+three nested web-search summaries, and four or five in generation — the
+keyword extraction, the evidence map, the resume and the cover letter, plus
+the rephrasing pass when the draft needs it. (An application strategy brief
+used to be a fifth document; it was removed.) A run used to cost
 more than a dollar; most of that was reasoning depth spent on steps that do
 not need it, search results re-billed on every turn, and a review pass on the
 resume. The levers, in the order they were applied:
 
 | Lever | What changed | Costs quality? |
 |---|---|---|
-| Per-step effort | Verdict and evidence map keep the default depth. Resume, letter, strategy and the rephrasing pass run at `medium`; search summaries, keyword extraction and lesson distillation at `low`. See `EFFORT` in `models.py`, and "Effort against caching" below for how that is delivered. | Not measurably for writing and extraction steps; the reasoning steps are untouched |
+| Per-step effort | Verdict and evidence map keep the default depth. Resume, letter and the rephrasing pass run at `medium`; search summaries, keyword extraction and lesson distillation at `low`. See `EFFORT` in `models.py`, and "Effort against caching" below for how that is delivered. | Not measurably for writing and extraction steps; the reasoning steps are untouched |
 | Search sub-calls | Two searches per query instead of three, a 200-word summary shape, `low` effort, and a 1,500-token cap. Their usage is now counted in the trace. | No — the agent reads a summary either way |
 | Run context cached | The posting and research sit in the system prompt behind a second cache marker, written once by the evidence-map call and read back by every later call, instead of travelling in the user turn at full price six times. | No |
 | Loop caching | The agent loop moves a cache marker to the newest user turn, so each turn reads the history it already sent. | No |
 | Priced trace | `models.py` carries the price table; the trace and the UI show dollars per run instead of "roughly $1". | No |
 | No review pass | The factuality review and the revision it could trigger are gone. The review ran at the default depth after the resume was written, so it was the costliest call after the evidence map, and it sat on the longest branch of the run. | Yes — see "Factual guardrails" |
 | Bank-aware first draft | The writers are told up front which of the posting's terms the bank uses, the same plain-Python check the rephrasing gate runs afterwards. A first draft that uses them lands nearer the target, so the second, full-resume rephrasing call fires less often. | No |
-| Bounded outputs | Output tokens cost five times input and set the pace. Every document waits for the evidence map, which is now at most 12 rows of short phrases. The strategy brief is bullets, about 700 words, with six interview questions. | Slightly: shorter internal documents, same facts |
+| Bounded outputs | Output tokens cost five times input and set the pace. Every document waits for the evidence map, which is now at most 12 rows of short phrases. | Slightly: shorter internal documents, same facts |
 | Hour-long bank cache | The experience bank and the agent's instructions are cached for an hour by default instead of five minutes. Postings run one after another are further apart than five minutes, so every run used to re-write the bank at 1.25x and never read it back. The first run of a sitting now writes it at 2x; every later run inside the hour reads it at 0.1x or less. | No |
-| Expiry guard | A cache entry lives five minutes from the start of the request that wrote it. If the evidence map runs past four minutes, one `max_tokens: 0` refresh goes out before the resume, letter and strategy start together — otherwise each of the three would re-write the prefix. | No |
+| Expiry guard | A cache entry lives five minutes from the start of the request that wrote it. If the evidence map runs past four minutes, one `max_tokens: 0` refresh goes out before the resume and letter start together — otherwise each would re-write the prefix. | No |
 
 ### Effort against caching
 
@@ -486,9 +484,9 @@ distillation is swallowed, because an edit that cannot be learned from is still
 an edit that saved correctly.
 
 Output lands in `outputs/`, which is gitignored because generated applications
-contain personal information. The resume comes two ways — see "The two
-resume copies" above — and the cover letter as a finished PDF. The evidence
-map, strategy and ATS report render as denser internal reports.
+contain personal information. The resume and the cover letter come as finished PDFs; the evidence map
+renders as a denser internal report. No strategy brief or ATS report is
+written.
 
 PDF rendering uses WeasyPrint. On Linux it installs from pip alone; on macOS it
 also needs its native text stack:

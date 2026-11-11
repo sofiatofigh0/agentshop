@@ -65,7 +65,6 @@ FULL = HEAD + ("- Owned the product roadmap for the LLM evaluation suite used by
 
 EVIDENCE = "| Requirement | Priority | Evidence | Where | Metric | Strength | Gap |\n|-|-|-|-|-|-|-|\n| roadmap | HIGH | owned it | Acme | — | STRONG | — |\n"
 LETTER = "# Jane Example\nNew York · jane@example.com\n\nDear team,\n\nI owned the product roadmap.\n\nJane"
-STRATEGY = "## Recommendation\nAPPLY\n## Why\nFit.\n"
 
 
 def fake_usage():
@@ -79,7 +78,7 @@ class Fake:
 
     def __init__(self, resume=DRAFT, reworded=REWORDED):
         self.texts = {"evidence_map": EVIDENCE, "resume": resume, "phrasing": reworded,
-                      "cover_letter": LETTER, "strategy": STRATEGY}
+                      "cover_letter": LETTER}
         self.steps = []
         self.inputs = {}
         self.lock = threading.Lock()
@@ -134,18 +133,16 @@ class Pipeline(unittest.TestCase):
 
         self.assertEqual(package["ats"]["resume"], 75)
         self.assertEqual(package["ats"]["target"], 75)
-        self.assertEqual(package["generation_calls"], 6)  # 5 main + keywords
-        self.assertAlmostEqual(package["cost_usd"], round(6 * (1000 * 5 + 500 * 25) / 1e6, 4))
+        self.assertEqual(package["generation_calls"], 5)  # 4 main + keywords
+        self.assertAlmostEqual(package["cost_usd"], round(5 * (1000 * 5 + 500 * 25) / 1e6, 4))
 
         run_dir = package["run_dir"]
         self.assertEqual(sorted(f for f in os.listdir(run_dir) if f.endswith(".pdf")),
-                         ["application_strategy.pdf", "ats_report.pdf", "cover_letter.pdf",
-                          "evidence_map.pdf", "tailored_resume.pdf"])
+                         ["cover_letter.pdf", "evidence_map.pdf", "tailored_resume.pdf"])
         for name in (gen.ATS_FILE, gen.SOURCES_FILE, "run.json"):
             self.assertTrue(os.path.isfile(os.path.join(run_dir, name)), name)
         self.assertEqual(set(package["files"]),
-                         {"resume", "cover_letter", "evidence_map",
-                          "strategy", "ats_report"})
+                         {"resume", "cover_letter", "evidence_map"})
         # sources.json names the resume PDF. The kept draft is the reworded one.
         with open(os.path.join(run_dir, gen.SOURCES_FILE)) as handle:
             sources = json.load(handle)
@@ -172,7 +169,7 @@ class Pipeline(unittest.TestCase):
         fake = Fake()
         package = self.run_pipeline(fake)
         self.assertEqual(sorted(set(fake.steps)),
-                         ["cover_letter", "evidence_map", "phrasing", "resume", "strategy"])
+                         ["cover_letter", "evidence_map", "phrasing", "resume"])
         self.assertFalse(os.path.exists(os.path.join(package["run_dir"], "factuality_review.pdf")))
 
     def test_no_rephrasing_when_already_at_target(self):
@@ -180,7 +177,7 @@ class Pipeline(unittest.TestCase):
         package = self.run_pipeline(fake)
         self.assertNotIn("phrasing", fake.steps)
         self.assertEqual(package["ats"]["resume"], 100)
-        self.assertEqual(package["generation_calls"], 5)
+        self.assertEqual(package["generation_calls"], 4)
 
     def test_no_rephrasing_when_there_is_nothing_honest_to_offer(self):
         """No variant on the page and nothing in the bank: no call is spent."""
@@ -217,7 +214,7 @@ class Pipeline(unittest.TestCase):
         package = self.run_pipeline(fake, extract=broken)
         self.assertNotIn("phrasing", fake.steps)
         self.assertEqual(package["ats"], {"resume": None, "cover_letter": None, "target": 75})
-        self.assertTrue(os.path.isfile(os.path.join(package["run_dir"], "ats_report.pdf")))
+        self.assertFalse(os.path.exists(os.path.join(package["run_dir"], "ats_report.pdf")))
         self.assertTrue(any("keyword extraction failed" in line for line in self.progress))
         self.assertNotIn("ATS KEYWORDS", fake.inputs["resume"][0])
 
@@ -231,7 +228,7 @@ class Pipeline(unittest.TestCase):
         self.assertNotIn("JD text", user)
         self.assertIn("ATS KEYWORDS", instructions)
         self.assertIn("ATS KEYWORDS", fake.inputs["cover_letter"][0])
-        self.assertNotIn("ATS KEYWORDS", fake.inputs["strategy"][0])
+        self.assertNotIn("strategy", fake.inputs)
 
     def test_writers_are_told_up_front_which_terms_the_bank_uses(self):
         """Fewer rephrasing calls: the first draft already knows the easy wins."""
@@ -251,8 +248,7 @@ class Pipeline(unittest.TestCase):
         flat = lambda text: " ".join(text.split())
         self.assertIn("At most 12 rows", flat(gen.EVIDENCE_MAP_PROMPT))
         self.assertIn("Every cell is a phrase, not a sentence", flat(gen.EVIDENCE_MAP_PROMPT))
-        self.assertIn("give six", flat(gen.STRATEGY_PROMPT))
-        self.assertIn("about 700 words in all", flat(gen.STRATEGY_PROMPT))
+        self.assertFalse(hasattr(gen, "STRATEGY_PROMPT"))
 
     def test_stretch_brief_rides_on_instructions(self):
         fake = Fake(resume=FULL)
@@ -290,7 +286,7 @@ class CacheGuards(Pipeline):
         self.assertIn("JD text", refresh.call_args.args[0])  # the run context
         self.assertTrue(any("refreshed the prompt cache" in line for line in self.progress))
         # The refresh is a call like any other and is priced with the rest.
-        self.assertEqual(package["generation_calls"], 7)
+        self.assertEqual(package["generation_calls"], 6)
 
     def test_a_fast_evidence_map_sends_no_refresh(self):
         refresh = mock.Mock(return_value=fake_usage())
@@ -307,7 +303,7 @@ class CacheGuards(Pipeline):
         """A silent prefix rewrite costs money and says nothing unless asked."""
         package = self.run_pipeline(Fake())   # every usage reads 0 cached tokens
         self.assertEqual(sorted(package["cache_misses"]),
-                         ["cover letter", "phrasing", "resume", "strategy"])
+                         ["cover letter", "phrasing", "resume"])
         self.assertTrue(any(line.startswith("cache: resume read nothing")
                             for line in self.progress))
 
@@ -409,7 +405,7 @@ class CallShape(unittest.TestCase):
     def test_a_sweep_pins_effort_at_the_top_level_for_every_step(self):
         with mock.patch.dict(os.environ, {"ANTHROPIC_EFFORT": "low"}):
             sent = []
-            for step in ("evidence_map", "resume", "strategy"):
+            for step in ("evidence_map", "resume", "cover_letter"):
                 client, _ = self.call(step)
                 call = client.calls[-1]
                 self.assertFalse(call["beta"])

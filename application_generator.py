@@ -8,10 +8,9 @@ model in a fixed order and writes files to fixed paths:
     evidence map  ->  resume draft  ->  [rephrasing pass]
     + ATS keywords
                   ->  cover letter
-                  ->  application strategy
-                  ->  ATS report (plain Python, no model)
+                  ->  ATS scores and parser checks (plain Python, no model)
 
-The three branches after the evidence map depend on nothing but the map, so
+The two branches after the evidence map depend on nothing but the map, so
 they run concurrently. That is a wall-clock change only: same calls, same
 prompts, same cost.
 
@@ -70,7 +69,6 @@ SOURCES_FILE = "sources.json"
 # The posting's keywords and each document's score, kept beside the PDFs so an
 # edit can be re-scored without another model call.
 ATS_FILE = "ats.json"
-ATS_REPORT = "ats_report.pdf"
 
 # The resume is rendered once, as the single-column upload copy (see
 # documents.py), and it is the file sources.json names.
@@ -85,8 +83,7 @@ def _generation_facts() -> str:
     - `possible_metric_to_validate` blocks. Previously they were sent with an
       instruction not to use them. Not sending them at all is strictly better:
       the model cannot misuse a number it never saw.
-    - `interview_stories`. Only the strategy document needs them, so they ride
-      on that one call's user message instead of every system prompt.
+    - `interview_stories`. Nothing generated uses them any more.
     """
     bank = copy.deepcopy(EXPERIENCE_BANK)
     for role in bank["roles"]:
@@ -94,12 +91,11 @@ def _generation_facts() -> str:
             project.pop("possible_metric_to_validate", None)
     for project in bank["personal_projects"]:
         project.pop("possible_metric_to_validate", None)
-    STORIES.extend(bank.pop("interview_stories", []))
+    bank.pop("interview_stories", None)
     BANK_FOR_MATCHING.update(bank)
     return json.dumps(bank, indent=2)
 
 
-STORIES: list = []
 BANK_FOR_MATCHING: dict = {}
 FACTS = _generation_facts()
 PROFILE = json.dumps(CANDIDATE_PROFILE, indent=2)
@@ -191,8 +187,7 @@ Three hard limits, because a stretch is exactly where applications start lying:
 - Never mention that this is a stretch. No apologising, no flagging thin
   experience, no "while I have not directly...". The documents an employer
   receives make the positive case and stop; the honest accounting of what is
-  missing belongs in the evidence map and the strategy brief, which the
-  employer never sees.
+  missing belongs in the evidence map, which the employer never sees.
 """
 
 
@@ -526,8 +521,8 @@ Keyword placement, because Skills now sits last on the page:
 This is a document the candidate submits to an employer. It must contain ONLY
 the resume. Never add a section assessing fit, listing gaps, weaknesses,
 caveats, "honest notes", or anything else addressed to the candidate rather
-than the employer — the gaps belong in the evidence map and the strategy
-document, which the employer never sees. End after the last resume section.
+than the employer — the gaps belong in the evidence map, which the employer
+never sees. End after the last resume section.
 """
 
 
@@ -637,49 +632,6 @@ def write_cover_letter(context: str, evidence_map: str, guidance: str = "") -> t
 
 
 # --------------------------------------------------------------------------
-# Step 4: application strategy
-# --------------------------------------------------------------------------
-
-STRATEGY_PROMPT = """You brief candidates before they apply.
-
-Write a strategy document in markdown with exactly these sections, in order:
-
-## Recommendation
-## Why
-## Top 5 reasons this candidate fits
-## Top 3 gaps or risks
-## What to emphasize in the application
-## Three experiences to emphasize in interviews
-## Likely interview questions
-## What NOT to emphasize
-## Company-specific notes from research
-
-Under "Likely interview questions", give six, each on its own line, naming the
-specific experience from the bank that should answer it. Under "Company-
-specific notes from research", write "No research was gathered." if none was —
-and where research is included, mark it as unverified and worth confirming,
-since this document is the candidate's own briefing rather than something the
-employer sees.
-
-Write it as a brief, not an essay: bullets of one or two lines under every
-section after "Why", and about 700 words in all. It is read the night before
-an interview, where a short page gets used and a long one gets skimmed.
-
-Be direct about the gaps. A brief that only flatters is useless.
-"""
-
-
-def write_strategy(context: str, evidence_map: str, recommendation: str,
-                   reasoning: str) -> tuple:
-    user = (
-        f"EVIDENCE MAP:\n{evidence_map}\n\n"
-        f"THE AGENT'S VERDICT: {recommendation}\nITS REASONING: {reasoning}\n\n"
-        f"PREPARED INTERVIEW STORIES:\n{json.dumps(STORIES, indent=2)}"
-    )
-    return _call("strategy", STRATEGY_PROMPT, user, context)
-
-
-# --------------------------------------------------------------------------
 # The pipeline
 # --------------------------------------------------------------------------
 
@@ -724,42 +676,38 @@ def render_document(markdown_text: str, path: str, style: str) -> tuple:
     return page_count(path), None
 
 
-def write_ats_report(run_dir: str, data: dict, resume_md: str, letter_md: str) -> dict:
-    """Score both documents, write ats_report.pdf and ats.json, return the scores.
+def write_ats_scores(run_dir: str, data: dict, resume_md: str, letter_md: str) -> dict:
+    """Score both documents, run the parser checks, write ats.json, return the scores.
 
     Every input is already on disk and nothing here calls a model, so this runs
-    again after an edit — which is the only way the score the UI shows and the
-    report it links can stay the same story. `data` is the ats.json payload:
-    the posting's title, its keywords, the target, and what the rephrasing pass
-    did, all of which belong to the run rather than to one document.
+    again after an edit, keeping the score the UI shows true to the text. `data`
+    is the ats.json payload: the posting's title, its keywords, the target, and
+    what the rephrasing pass did, all of which belong to the run rather than to
+    one document. No report is rendered; a failed check comes back in
+    `scores["problems"]` so the caller can say so.
     """
     keywords = data.get("keywords") or []
-    scores = {"resume": None, "cover_letter": None, "target": data.get("target")}
+    scores = {"resume": None, "cover_letter": None, "target": data.get("target"),
+              "problems": []}
+
+    pdf = os.path.join(run_dir, RESUME_PDF)
+    checks = ats.format_checks(resume_md)
+    if os.path.isfile(pdf):
+        checks += [ats.pdf_contact_check(pdf), ats.pdf_full_text_check(pdf, resume_md),
+                   dict(ats.reading_order(pdf, resume_md), check="Reads in order")]
+    scores["problems"] = [f"{c['check']}: {c['detail']}" for c in checks if not c["ok"]]
+    data = dict(data, checks=checks)
 
     if keywords:
         resume_scored = ats.score(keywords, resume_md)
         letter_scored = ats.score(keywords, letter_md) if letter_md else None
-        candidates, real_gaps = ats.bank_supported(resume_scored["missing"], BANK_PROSE)
-        report = ats.report(
-            data, resume_scored, letter_scored, data.get("target"),
-            candidates, real_gaps,
-            ats.format_checks(resume_md)
-            + [ats.pdf_contact_check(os.path.join(run_dir, RESUME_PDF)),
-               ats.pdf_full_text_check(os.path.join(run_dir, RESUME_PDF), resume_md)],
-            ats.title_match(data.get("title", ""), resume_md),
-            ats.pdf_text_check(os.path.join(run_dir, RESUME_PDF), resume_scored["matched"]),
-            data.get("rephrasing_pass"),
-            order=ats.reading_order(os.path.join(run_dir, RESUME_PDF), resume_md),
-        )
         scores["resume"] = resume_scored["score"]
         scores["cover_letter"] = letter_scored["score"] if letter_scored else None
         data = dict(data, resume=ats.summary(resume_scored),
                     cover_letter=ats.summary(letter_scored) if letter_scored else None)
     else:
-        report = ats.report(data, None, None, data.get("target"), [], [], [], {}, {})
         data = dict(data, resume=None, cover_letter=None)
 
-    write_pdf(report, os.path.join(run_dir, ATS_REPORT), "report")
     _write_json(os.path.join(run_dir, ATS_FILE), data)
     return scores
 
@@ -945,9 +893,8 @@ def generate_application_package(
     keyword_block = ats.prompt_block(extracted, BANK_PROSE)
 
     # The evidence map is the only step the rest depends on. After it, the
-    # resume chain, the cover letter and the strategy share no inputs, so they
-    # run at the same time rather than one after another — the same calls, the
-    # same cost, roughly the time of three.
+    # resume chain and the cover letter share no inputs, so they run at the
+    # same time rather than one after another.
     def resume_chain():
         draft = with_contact(
             run(write_resume(context, evidence_map, guidance + keyword_block), "resume"))
@@ -986,20 +933,13 @@ def generate_application_package(
         progress("cover letter written.")
         return text
 
-    def strategy_step():
-        text = run(write_strategy(context, evidence_map, recommendation, reasoning), "strategy")
-        progress("application strategy written.")
-        return text
-
     # These lines arrive interleaved, so each one names its own document.
-    progress("writing resume, cover letter and strategy...")
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    progress("writing resume and cover letter...")
+    with ThreadPoolExecutor(max_workers=2) as pool:
         pending_resume = pool.submit(resume_chain)
         pending_letter = pool.submit(cover_letter_step)
-        pending_strategy = pool.submit(strategy_step)
         resume, pass_info = pending_resume.result()
         cover_letter = pending_letter.result()
-        strategy = pending_strategy.result()
 
     # The model writes markdown; documents.py decides how each one looks. The
     # two documents an employer receives get document typography; the internal
@@ -1008,7 +948,6 @@ def generate_application_package(
         ("resume", RESUME_PDF, resume, "resume"),
         ("cover_letter", "cover_letter.pdf", cover_letter, "letter"),
         ("evidence_map", "evidence_map.pdf", evidence_map, "report"),
-        ("strategy", "application_strategy.pdf", strategy, "report"),
     ]
     files = {}
     for key, name, body, style in outputs:
@@ -1023,14 +962,15 @@ def generate_application_package(
                 progress(f"{name}: fitted to one page at {pt}pt")
         files[key] = path
 
-    # The ATS report: scores on the final text, the checks a parser cares
-    # about, and whether the finished PDF still reads. Plain Python, no model,
-    # which is what lets an edit rebuild the whole thing later.
-    ats_scores = write_ats_report(run_dir, {
+    # Scores on the final text and the checks a parser cares about, including
+    # whether the finished PDF still reads. Plain Python, no model. Only a
+    # failure is printed; there is no report file.
+    ats_scores = write_ats_scores(run_dir, {
         "title": extracted["title"], "keywords": keywords, "target": target,
         "rephrasing_pass": pass_info,
     }, resume, cover_letter)
-    files["ats_report"] = os.path.join(run_dir, ATS_REPORT)
+    for problem in ats_scores.pop("problems"):
+        progress(f"ATS check failed — {problem}")
     if ats_scores["resume"] is not None:
         progress(f"ATS: resume {ats_scores['resume']}/100, "
                  f"cover letter {ats_scores['cover_letter']}/100 (target {target})")
@@ -1038,7 +978,6 @@ def generate_application_package(
     # The markdown behind each PDF, so it can be edited and re-rendered later.
     # `file` and `style` live here too: an edit then names a document by key and
     # the server looks up where it goes, rather than taking a path from a caller.
-    # The ATS report is not here: it is derived, and re-derived on every edit.
     _write_json(os.path.join(run_dir, SOURCES_FILE),
                 {key: {"file": name, "style": style, "markdown": body}
                  for key, name, body, style in outputs})

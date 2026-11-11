@@ -11,7 +11,7 @@ tables, bullets as text. A screening system reads a page as one stream, and
 this layout is that stream.
 
 Plus LETTER_CSS for the cover letter, and REPORT_CSS for the internal working
-documents — evidence map, strategy, ATS report — which are
+documents — the evidence map — which are
 denser and allowed wide tables.
 """
 

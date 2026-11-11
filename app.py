@@ -35,7 +35,7 @@ import lessons
 
 from application_generator import (
     ATS_FILE, OUTPUT_DIR, SOURCES_FILE, generate_application_package, render_document,
-    write_ats_report,
+    write_ats_scores,
 )
 
 app = Flask(__name__, static_folder=None)
@@ -306,12 +306,10 @@ def write_document(folder: str, key: str):
 
 
 def _rescore(run_dir: str, key: str, sources: dict, meta: dict):
-    """Re-score the edited application and rebuild its ATS report.
+    """Re-score the edited application from the text now on disk.
 
     Returns this document's new score, or None when the run has no keywords or
-    the edited document is not one a screener reads. Both documents are scored
-    and the report is written again from the text now on disk, so the score in
-    the history and the report behind it can never disagree.
+    the edited document is not one a screener reads.
     """
     if key not in ("resume", "cover_letter"):
         return None
@@ -326,7 +324,7 @@ def _rescore(run_dir: str, key: str, sources: dict, meta: dict):
     def markdown(name):
         return (sources.get(name) or {}).get("markdown", "")
 
-    scores = write_ats_report(run_dir, data, markdown("resume"), markdown("cover_letter"))
+    scores = write_ats_scores(run_dir, data, markdown("resume"), markdown("cover_letter"))
 
     meta.setdefault("ats", {})["target"] = data.get("target", ats.target_score())
     meta["ats"]["resume"] = scores["resume"]

@@ -6,7 +6,7 @@ Run it with:  python agent.py
 Paste a job description, and the agent evaluates it against your profile,
 researches the company if that could change the answer, and returns
 APPLY / MAYBE / SKIP. If the role is worth pursuing it hands off to
-application_generator.py for the resume, cover letter and strategy.
+application_generator.py for the resume and cover letter.
 
 The split this file exists to demonstrate:
 
