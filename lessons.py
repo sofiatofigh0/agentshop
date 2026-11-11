@@ -201,7 +201,7 @@ def _distil(entry: dict) -> dict:
     client = anthropic.Anthropic()
     response = client.messages.create(
         model=model,
-        max_tokens=400,
+        max_tokens=8000,  # thinking counts against this, not just the sentence
         system=DISTILL_PROMPT,
         messages=[{"role": "user", "content": user}],
         **request_options("distill", model),

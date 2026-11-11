@@ -5,6 +5,7 @@ rephrasing pass fires and when it does not, which draft is kept, and what
 lands on disk. The PDFs are really rendered.
 """
 
+import contextlib
 import json
 import os
 import tempfile
@@ -319,8 +320,9 @@ class CacheGuards(Pipeline):
 class Recorder:
     """A fake Anthropic client that records both transport paths."""
 
-    def __init__(self, fail_beta=False):
+    def __init__(self, fail_beta=False, stop_reason="end_turn"):
         self.calls = []
+        self.stop_reason = stop_reason
         self.fail_beta = fail_beta
         outer = self
 
@@ -333,8 +335,13 @@ class Recorder:
                                                                  headers={}, request=None),
                         body=None)
                 return SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")],
-                                       usage=fake_usage(), stop_reason="end_turn")
-            return SimpleNamespace(create=create)
+                                       usage=fake_usage(), stop_reason=outer.stop_reason)
+
+            @contextlib.contextmanager
+            def stream(**kwargs):
+                response = create(stream=True, **kwargs)
+                yield SimpleNamespace(get_final_message=lambda: response)
+            return SimpleNamespace(create=create, stream=stream)
 
         self.messages = make(False)
         self.beta = SimpleNamespace(messages=make(True))
@@ -409,6 +416,22 @@ class CallShape(unittest.TestCase):
                 sent.append(call["output_config"])
         self.assertEqual(sent, [{"effort": "low"}] * 3)
 
+
+    def test_documents_stream_with_room_for_thinking(self):
+        """Thinking counts against max_tokens; a tight cap leaves no text."""
+        client, _ = self.call("resume")
+        call = client.calls[-1]
+        self.assertTrue(call["stream"])
+        self.assertEqual(call["max_tokens"], gen.GENERATION_MAX_TOKENS)
+        self.assertGreaterEqual(gen.GENERATION_MAX_TOKENS, 32000)
+
+    def test_running_out_of_room_is_a_clear_error_not_a_truncated_file(self):
+        client = Recorder(stop_reason="max_tokens")
+        with mock.patch.object(gen.anthropic, "Anthropic", lambda: client), \
+             mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "claude-opus-5"}):
+            with self.assertRaises(RuntimeError) as caught:
+                gen._call("resume", "STEP", "USER", "RUN CONTEXT")
+        self.assertIn("not your credit balance", str(caught.exception))
 
     def test_the_refresh_sends_exactly_the_cached_blocks(self):
         """Byte-identical to what the documents send, or it refreshes nothing."""

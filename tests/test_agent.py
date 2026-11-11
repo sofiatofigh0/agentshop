@@ -83,7 +83,7 @@ class SearchUsage(unittest.TestCase):
 
         self.assertEqual(text, "Facts [example.com]")
         self.assertEqual(captured["model"], "claude-sonnet-5")
-        self.assertEqual(captured["max_tokens"], 1500)
+        self.assertEqual(captured["max_tokens"], 8000)
         self.assertEqual(captured["tools"][0]["max_uses"], tools.MAX_SEARCHES_PER_QUERY)
         self.assertEqual(captured["output_config"], {"effort": "low"})
         self.assertIn("who is acme", captured["messages"][0]["content"])

@@ -87,7 +87,7 @@ def search_web(query: str) -> str:
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=1500,
+            max_tokens=8000,  # thinking counts against this, not just the summary
             tools=[web_search_tool(model, MAX_SEARCHES_PER_QUERY)],
             messages=[{"role": "user", "content": SEARCH_PROMPT.format(query=query)}],
             **request_options("search", model),

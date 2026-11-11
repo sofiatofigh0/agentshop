@@ -264,8 +264,18 @@ def refresh_prefix(context: str):
     return response.usage
 
 
+# Room for the model's reasoning AND the document. On current models thinking
+# cannot be switched off and its tokens count against max_tokens, so a tight
+# cap is spent on reasoning before a word of the document is written — the
+# call then ends with stop_reason=max_tokens and no text at all. Billing is for
+# tokens actually produced, so a high cap costs nothing extra; it is only a
+# ceiling. Values this large need streaming, or the SDK refuses the request
+# as one that could outrun its HTTP timeout.
+GENERATION_MAX_TOKENS = 64000
+
+
 def _call(step: str, instructions: str, user: str, context: str = "",
-          max_tokens: int = 8000) -> tuple:
+          max_tokens: int = GENERATION_MAX_TOKENS) -> tuple:
     """One plain model call. Returns (text, usage).
 
     No tools here — this stage is a fixed pipeline, not an agent loop. `step`
@@ -289,18 +299,29 @@ def _call(step: str, instructions: str, user: str, context: str = "",
     response = None
     if depth is not None:
         try:
-            response = client.beta.messages.create(
+            with client.beta.messages.stream(
                 betas=[models.PER_MESSAGE_EFFORT_BETA],
                 messages=[depth, turn], **kwargs,
-            )
+            ) as stream:
+                response = stream.get_final_message()
         except anthropic.BadRequestError:
             # The beta is not available here. Stop trying, and run this step
             # at the default depth like the rest of the stage.
             models.disable_per_message_effort()
     if response is None:
-        response = client.messages.create(messages=[turn], **kwargs)
+        with client.messages.stream(messages=[turn], **kwargs) as stream:
+            response = stream.get_final_message()
 
     text = "\n".join(b.text for b in response.content if b.type == "text").strip()
+    if response.stop_reason == "max_tokens":
+        # Either nothing was written or the document stops mid-sentence. Both
+        # are failures: a truncated resume must never be saved as finished.
+        raise RuntimeError(
+            f"The {step} step ran out of output room ({max_tokens} tokens) before it "
+            f"finished{' writing anything' if not text else ''}. This is a length limit, "
+            "not your credit balance. Lower ANTHROPIC_EFFORT in .env, or raise "
+            "GENERATION_MAX_TOKENS in application_generator.py."
+        )
     if not text:
         # Malformed / empty response — fail loudly rather than write an empty file.
         raise RuntimeError(
@@ -382,8 +403,7 @@ their order and the first three lines all matter.
 
 # <full name>
 **<the posting's exact job title — see "The title line" below>**
-<location> | <phone> | <email>
-<linkedin> | <portfolio>
+<location> · <email> · <phone> · <linkedin> · <portfolio>
 
 ## Summary
 <three or four lines of prose, aimed at this role; the first sentence uses the
@@ -434,8 +454,8 @@ The title line:
   because some systems weight the summary as heavily as the headline.
 
 Rules for that structure:
-- The two contact lines are rewritten in code from the identity block after
-  you write them, so a parser always finds the phone, email and LinkedIn
+- The contact line is rewritten in code from the identity block after you
+  write it, so a parser always finds the phone, email and LinkedIn
   where it looks for them. Write them as shown anyway, and never put contact
   details anywhere else in the resume.
 - Write every URL as plain text (sofia-tofigh.netlify.app), never as a
@@ -613,7 +633,7 @@ is worse than no link at all.
 
 def write_cover_letter(context: str, evidence_map: str, guidance: str = "") -> tuple:
     return _call("cover_letter", COVER_LETTER_PROMPT + guidance,
-                 f"EVIDENCE MAP:\n{evidence_map}", context, max_tokens=4000)
+                 f"EVIDENCE MAP:\n{evidence_map}", context)
 
 
 # --------------------------------------------------------------------------
@@ -724,7 +744,8 @@ def write_ats_report(run_dir: str, data: dict, resume_md: str, letter_md: str) -
             data, resume_scored, letter_scored, data.get("target"),
             candidates, real_gaps,
             ats.format_checks(resume_md)
-            + [ats.pdf_contact_check(os.path.join(run_dir, RESUME_PDF))],
+            + [ats.pdf_contact_check(os.path.join(run_dir, RESUME_PDF)),
+               ats.pdf_full_text_check(os.path.join(run_dir, RESUME_PDF), resume_md)],
             ats.title_match(data.get("title", ""), resume_md),
             ats.pdf_text_check(os.path.join(run_dir, RESUME_PDF), resume_scored["matched"]),
             data.get("rephrasing_pass"),
@@ -764,12 +785,12 @@ def _write_json(path: str, payload) -> None:
 # runs went out with a location and a LinkedIn link and nothing else. So the
 # block is rebuilt from the identity block on every generated resume.
 #
-# Two short lines rather than one long one, so no item wraps across a line
-# break, and " | " between items: a plain ASCII separator that every
-# extractor reads as a boundary.
+# One line, in the order the resume has always used: location, email, phone,
+# LinkedIn, portfolio, separated by " · ". The renderer keeps each item
+# whole when the line wraps, so no address is split across two lines.
 # --------------------------------------------------------------------------
 
-CONTACT_SEPARATOR = " | "
+CONTACT_SEPARATOR = " · "
 
 
 def _bare_url(url: str) -> str:
@@ -778,19 +799,16 @@ def _bare_url(url: str) -> str:
 
 
 def contact_lines(identity: dict = None) -> list:
-    """The resume's contact block, from the identity block. Empty fields are
-    left out rather than invented."""
+    """The resume's contact line, from the identity block, as a one-item
+    list. Empty fields are left out rather than invented."""
     identity = IDENTITY if identity is None else identity
     portfolio = _bare_url(identity.get("portfolio", ""))
     if portfolio and identity.get("portfolio_password"):
         portfolio += f" (password: {identity['portfolio_password']})"
-    rows = [
-        [identity.get("location", ""), identity.get("phone", ""), identity.get("email", "")],
-        [_bare_url(identity.get("linkedin", "")), portfolio],
-    ]
-    lines = [CONTACT_SEPARATOR.join(i.strip() for i in row if i and i.strip())
-             for row in rows]
-    return [line for line in lines if line]
+    items = [identity.get("location", ""), identity.get("email", ""),
+             identity.get("phone", ""), _bare_url(identity.get("linkedin", "")), portfolio]
+    line = CONTACT_SEPARATOR.join(i.strip() for i in items if i and i.strip())
+    return [line] if line else []
 
 
 def with_contact(resume_md: str, identity: dict = None) -> str:

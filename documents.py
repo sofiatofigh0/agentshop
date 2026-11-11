@@ -65,6 +65,7 @@ strong {{ font-weight: 700; }}
 .name {{ font-size: 2.1em; font-weight: 700; margin: 0; }}
 .title {{ font-size: 1.12em; font-weight: 700; margin: 0.1em 0 0.15em; }}
 .contact {{ margin: 0 0 0.3em; }}
+.contact .item {{ white-space: nowrap; }}
 
 h2 {{ font-size: 1.05em; font-weight: 700; margin: 0.95em 0 0.4em;
      padding-bottom: 0.15em; border-bottom: 0.8pt solid #111111;
@@ -285,7 +286,10 @@ def _contact_html(line: str) -> str:
         out.append(f'<a href="{_escape(href)}">{_escape(line[start:end])}</a>')
         at = end
     out.append(_escape(line[at:]))
-    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", "".join(out))
+    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", "".join(out))
+    # Each item stays whole if the line wraps: a break may fall at a separator,
+    # never inside an address, a number or "(password: ...)".
+    return " · ".join(f'<span class="item">{part}</span>' for part in html.split(" · "))
 
 
 def _escape(text: str) -> str:

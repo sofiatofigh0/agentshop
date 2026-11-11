@@ -141,7 +141,7 @@ def extract_keywords(job_description: str) -> dict:
     client = anthropic.Anthropic()
     response = client.messages.create(
         model=model,
-        max_tokens=3000,
+        max_tokens=16000,  # thinking counts against this; see GENERATION_MAX_TOKENS
         system=EXTRACT_PROMPT,
         messages=[{"role": "user", "content": f"JOB DESCRIPTION:\n{job_description}"}],
         **request_options("keywords", model),
@@ -676,6 +676,57 @@ def pdf_contact_check(pdf_path: str) -> dict:
     return {"check": "Contact fields readable in the PDF", "ok": ok,
             "detail": "email, phone and LinkedIn all extract" if ok
                       else "not found when the PDF is read as text: " + _missing_fields(found)}
+
+
+# Characters that mean extraction went wrong: the replacement character,
+# private-use glyphs (a font with no text mapping), presentation-form
+# ligatures (fi, fl, ff...) and control characters. A parser that meets one
+# mid-word no longer sees the word.
+_BROKEN = re.compile("[\ufffd\ue000-\uf8ff\ufb00-\ufb06\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _words(text: str) -> list:
+    return re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", text).lower())
+
+
+def pdf_full_text_check(pdf_path: str, resume_md: str) -> dict:
+    """Does every word of the resume come back out of the PDF as text?
+
+    The keyword check covers only the posting's terms. This covers the page:
+    each word the markdown holds must be extractable, the way a resume parser
+    reads it, with no broken characters in between. Markdown syntax is
+    ignored; a link counts by its visible text.
+    """
+    name = "Every word readable in the PDF"
+    try:
+        text = "\n".join(page.extract_text() or "" for page in PdfReader(pdf_path).pages)
+    except Exception as exc:
+        return {"check": name, "ok": False, "detail": f"could not read the PDF: {exc}"}
+    visible = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", resume_md)
+    visible = re.sub(r"^#{1,6}\s+|^\s*[-*]\s+|\*\*", "", visible, flags=re.M)
+    expected, found = _words(visible), _words(text)
+    pool = {}
+    for word in found:
+        pool[word] = pool.get(word, 0) + 1
+    lost = []
+    for word in expected:
+        if pool.get(word):
+            pool[word] -= 1
+        else:
+            lost.append(word)
+    broken = sorted({f"U+{ord(c):04X}" for c in _BROKEN.findall(text)})
+    ok = not lost and not broken
+    if ok:
+        detail = f"all {len(expected)} words extract cleanly"
+    else:
+        parts = []
+        if lost:
+            parts.append(f"{len(lost)} word(s) not extracted, e.g. "
+                         + ", ".join(sorted(set(lost))[:6]))
+        if broken:
+            parts.append("unreadable characters: " + ", ".join(broken))
+        detail = "; ".join(parts)
+    return {"check": name, "ok": ok, "detail": detail}
 
 
 def format_checks(resume_md: str) -> list:

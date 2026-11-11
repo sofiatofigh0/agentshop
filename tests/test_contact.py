@@ -40,16 +40,16 @@ State University · 2019
 
 
 class ContactBlock(unittest.TestCase):
-    def test_two_lines_with_ascii_separators(self):
+    def test_one_line_in_the_original_order(self):
         self.assertEqual(gen.contact_lines(IDENTITY), [
-            "New York, NY | (555) 010-0199 | jane.fiona@example.com",
-            "linkedin.com/in/jane-example | jane-example.netlify.app (password: open-sesame)",
+            "New York, NY · jane.fiona@example.com · (555) 010-0199 · "
+            "linkedin.com/in/jane-example · jane-example.netlify.app (password: open-sesame)",
         ])
 
     def test_blank_fields_are_left_out_not_invented(self):
         sparse = dict(IDENTITY, phone="", email="", portfolio_password="")
         self.assertEqual(gen.contact_lines(sparse), [
-            "New York, NY", "linkedin.com/in/jane-example | jane-example.netlify.app"])
+            "New York, NY · linkedin.com/in/jane-example · jane-example.netlify.app"])
         self.assertEqual(gen.missing_contact(sparse), ["CANDIDATE_EMAIL", "CANDIDATE_PHONE"])
         self.assertEqual(gen.missing_contact(IDENTITY), [])
 
@@ -59,7 +59,7 @@ class ContactBlock(unittest.TestCase):
         self.assertIn("**Senior Product Manager**", head)
         self.assertIn("jane.fiona@example.com", head)
         self.assertIn("(555) 010-0199", head)
-        self.assertNotIn("·", head)
+        self.assertEqual(len([l for l in head.splitlines() if "·" in l]), 1)
         self.assertEqual(fixed.split("## Summary")[1], DRAFT.split("## Summary")[1])
 
     def test_replacing_is_idempotent(self):
@@ -83,10 +83,13 @@ class InThePdf(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def test_both_contact_lines_reach_the_page(self):
-        text = self.page.extract_text()
-        self.assertIn("New York, NY | (555) 010-0199 | jane.fiona@example.com", text)
-        self.assertIn("linkedin.com/in/jane-example | jane-example.netlify.app", text)
+    def test_every_contact_item_reaches_the_page_whole(self):
+        text = " ".join(self.page.extract_text().split())
+        for item in ("New York, NY", "jane.fiona@example.com", "(555) 010-0199",
+                     "linkedin.com/in/jane-example", "jane-example.netlify.app (password: open-sesame)"):
+            self.assertIn(item, text)
+        for line in self.page.extract_text().splitlines():
+            self.assertFalse(line.rstrip().endswith("(password:"), line)
 
     def test_each_field_is_also_a_real_link(self):
         uris = [a.get_object()["/A"]["/URI"] for a in self.page.get("/Annots", [])]
@@ -99,6 +102,31 @@ class InThePdf(unittest.TestCase):
 
     def test_ligatures_are_off(self):
         self.assertIn('"liga" 0', documents.ATS_CSS(9.6, "0.5in"))
+
+
+class WholePage(unittest.TestCase):
+    """Every word, not only the posting's keywords, has to extract."""
+
+    def test_every_word_of_a_full_resume_extracts(self):
+        md = gen.with_contact(DRAFT, IDENTITY)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "resume.pdf")
+            documents.fit_pdf(md, path, "resume")
+            result = ats.pdf_full_text_check(path, md)
+        self.assertTrue(result["ok"], result)
+
+    def test_a_word_missing_from_the_pdf_is_named(self):
+        md = gen.with_contact(DRAFT, IDENTITY)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "resume.pdf")
+            documents.fit_pdf(md, path, "resume")
+            result = ats.pdf_full_text_check(path, md + "\n- Zanzibarian quokka wrangling\n")
+        self.assertFalse(result["ok"])
+        self.assertIn("zanzibarian", result["detail"])
+
+    def test_a_ligature_counts_as_broken(self):
+        self.assertTrue(ats._BROKEN.search("o\ufb03ce"))
+        self.assertFalse(ats._BROKEN.search("office · résumé — “quoted”"))
 
 
 class Checks(unittest.TestCase):
