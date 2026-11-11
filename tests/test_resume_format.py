@@ -83,6 +83,25 @@ class AtsRules(unittest.TestCase):
         for retired in ("## Profile", "## Experience\n", "## Selected Projects"):
             self.assertNotIn(retired, RESUME_PROMPT)
 
+    def test_sections_are_in_the_fixed_order(self):
+        order = ["## Summary", "## Work Experience", "## Education", "## Projects",
+                 "## Skills"]
+        positions = [RESUME_PROMPT.index(h) for h in order]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("Section order is fixed, always: Summary, Work Experience, "
+                      "Education, Projects, Skills.", RESUME)
+        self.assertIn("(Summary, Work Experience, Education, Projects, Skills)",
+                      flat(PHRASING_PROMPT))
+
+    def test_roles_are_strictly_reverse_chronological(self):
+        self.assertIn("strict reverse-chronological order", RESUME)
+        self.assertNotIn("markedly more relevant", RESUME)
+
+    def test_keywords_are_placed_for_a_skills_last_layout(self):
+        self.assertIn("The Summary carries the two or three most heavily weighted", RESUME)
+        self.assertIn("never invent a bullet to give it a home", RESUME)
+        self.assertIn("Retrieval-Augmented Generation (RAG)", RESUME)
+
     def test_the_title_line_is_the_posting_s_exact_title(self):
         self.assertIn("**<the posting's exact job title", RESUME)
         self.assertIn("word for word", RESUME)

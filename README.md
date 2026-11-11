@@ -207,7 +207,9 @@ before anything changed. Here is what was adopted and what was not.
 | Two columns get scrambled | Measured, not assumed: this project's own two-column PDF reads back with Education ahead of Experience, and with each row fusing a line from the sidebar to a line from the main column. The upload copy is now one column, and `tests/test_documents.py` keeps both results as a regression guard. |
 | Match the exact job title | The title line is the posting's own title, word for word, or its core when the full title will not fit. The Summary's first sentence repeats it. It never overstates seniority: a "Director of Product" posting gets "Senior Product Manager". |
 | Exact words, not synonyms | Scoring now counts only the posting's own term. A resume that says it another way is shown the exact rewording, and those rewordings go to the rephrasing pass first. |
-| Standard headings | Summary, Skills, Work Experience, Projects, Education. The report flags any heading a parser would have to guess at. |
+| Standard headings, fixed order | Summary, Work Experience, Education, Projects, Skills — always in that order (Projects may be omitted; the rest keep their order). The report flags any heading a parser would have to guess at. |
+| Reverse-chronological roles | Newest first, always: parsers read the first role as the current title. A more relevant older role gets more bullets, not a higher slot. |
+| Keywords with Skills last | The Summary carries the two or three heaviest required terms the bank supports, in sentences; each requested skill also appears in a dated bullet where the bank supports it; Skills writes "Full Name (ABBR)" where the posting spells a term out. |
 | Contact details in the body | They always were: nothing uses the page margins. |
 | One date format | The bank already used Month Year throughout. The prompt now says why it must stay that way, and the report checks every role. |
 | No icons | Checked by Unicode category; ordinary punctuation passes. |

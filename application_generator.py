@@ -391,9 +391,6 @@ a two-column designed copy for people.
 <three or four lines of prose, aimed at this role; the first sentence uses the
 title line's title, verbatim>
 
-## Skills
-- <six to nine short skill phrases, most relevant first>
-
 ## Work Experience
 ### <Role> — <Company> | <dates>
 <optional single line describing the employer or scope>
@@ -403,12 +400,20 @@ title line's title, verbatim>
 ### <Role> — <Company> | <dates>
 - <a plain bullet, where the work was not one discrete project>
 
-## Projects
-- **<name>** — <one line>
-
 ## Education
 **<credential>**
 <institution> · <dates>
+
+## Projects
+- **<name>** — <one line>
+
+## Skills
+- <six to nine short skill phrases, most relevant first>
+
+Section order is fixed, always: Summary, Work Experience, Education, Projects,
+Skills. Never move a section, merge two, or put Skills near the top because a
+posting is skills-heavy. If Projects is omitted (see below), the other four
+keep this order.
 
 The title line:
 - It is the posting's own job title, word for word. If the posting says
@@ -436,8 +441,8 @@ Rules for that structure:
   Write every URL as plain text (sofia-tofigh.netlify.app), never as a
   markdown link: a parser stores the text it can read, not the link behind a
   label.
-- Use exactly the section headings shown — Summary, Skills, Work Experience,
-  Projects, Education. A parser files each section by its heading; one it does
+- Use exactly the section headings shown, in exactly that order — Summary,
+  Work Experience, Education, Projects, Skills. A parser files each section by its heading; one it does
   not recognise lands in a field nobody searches.
 - No icons, emoji, symbols or decorative characters anywhere — no phone or
   envelope glyphs, stars, checkmarks or arrows. To a parser they are noise,
@@ -459,8 +464,11 @@ Rules for that structure:
   described as a kind of work rather than a thing that shipped all stay plain
   sentences — the Confluent consulting work is the clear case. A label on work
   that was not a project reads as padding and tells the reviewer nothing.
-- Roles go newest first UNLESS a less recent role is markedly more relevant to
-  this job, in which case lead with that one.
+- Roles go newest first, always — strict reverse-chronological order. Parsers
+  take the first role listed as the current title and compute recency from
+  it, so an older role placed first is misread as the present one. Give a
+  more relevant older role more bullets and stronger wording instead of a
+  higher position.
 - The pipe before the dates is required — it is how the renderer places
   them. Keep every date exactly as the bank states it, which gives one format
   throughout: Month Year - Month Year. Never mix formats ("Jan 2020",
@@ -474,6 +482,27 @@ Rules for that structure:
   Education in a narrow column that must not outrun the one beside it.
 - Omit Projects entirely if nothing there answers a requirement.
 - No other top-level sections.
+
+Keyword placement, because Skills now sits last on the page:
+- The Summary carries the two or three most heavily weighted required terms
+  from the ATS keyword list that the bank genuinely supports, each inside a
+  true sentence about the candidate's work — never as a list. Some screening
+  systems weight the top third of the page most, and a recruiter skimming the
+  ranked list reads the Summary and little else.
+- Every hard skill or tool in Skills that the posting asks for also appears
+  in at least one Work Experience or Projects bullet, describing where it was
+  used. Systems that estimate how recently and how long a skill was used read
+  it from the role it sits under; a skill that appears only in the Skills list
+  has no date attached to it, and a reviewer treats it as unproven. This
+  only moves a skill into a bullet the bank already supports: if the bank
+  shows no use of it in a role or project, it stays in Skills alone — never
+  invent a bullet to give it a home.
+- In Skills, write each entry in the posting's exact form. Where the posting
+  uses a standard abbreviation for a term ("RAG", "SQL"), write it as the
+  posting does; where the posting spells a term out and a standard
+  abbreviation exists, write the full form followed by the abbreviation in
+  brackets once ("Retrieval-Augmented Generation (RAG)"), so a search for
+  either form finds it. Do this in Skills only, not in every bullet.
 
 This is a document the candidate submits to an employer. It must contain ONLY
 the resume. Never add a section assessing fit, listing gaps, weaknesses,
@@ -524,8 +553,9 @@ If a term cannot be worked in by rewording something that is already true,
 leave it out. That is the expected outcome for part of the list; the report
 will record it as a gap, which is the right answer.
 
-Return the full resume in markdown, in exactly the structure you received, with
-no commentary.
+Return the full resume in markdown, in exactly the structure and section order
+you received (Summary, Work Experience, Education, Projects, Skills), with no
+commentary.
 """
 
 
