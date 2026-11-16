@@ -175,10 +175,17 @@ How it works, in order:
    rewords sentences that already say the thing, in the posting's words,
    changing sentence structure where it has to. Terms said in a different
    form go first — the claim is already on the page, so rewording it adds
-   nothing. Then missing terms the experience bank at least mentions. It may
-   not add a bullet, a skill, or a claim; a term the bank never mentions is a
-   gap, and no call is spent on it. The reworded draft is kept only if it
-   scores higher.
+   nothing. Then missing terms the experience bank mentions word for word.
+   Then, up to 20 terms in all, the ones the bank never words that way but may
+   still describe — "llm application development" for an LLM + RAG pipeline.
+   A text search cannot see that match, so the model checks each against the
+   bank and uses it only where the work is really there. Tenure ("5+ years")
+   is never offered. It may not add a bullet, a skill, or a claim, and the
+   reworded draft is kept only if it scores higher.
+
+   Earlier versions offered only terms the bank used word for word, at most
+   eight. That left most of a posting's vocabulary unreachable and scores
+   mostly under 50 even on strong fits.
 5. **Checks.** No report file is written. The scores and the parser-facing
    checks (standard headings, one date format, no icons, contact fields, every
    word extractable from the PDF, reading order) are saved to `ats.json`, the

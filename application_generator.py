@@ -906,12 +906,13 @@ def generate_application_package(
         # spent trying to close it.
         if keywords:
             scored = ats.score(keywords, draft)
-            candidates, _ = ats.bank_supported(scored["missing"], BANK_PROSE)
-            offered = ats.rephrase_offer(scored["variants"], candidates)
+            candidates, unmentioned = ats.bank_supported(scored["missing"], BANK_PROSE)
+            offered = ats.rephrase_offer(scored["variants"], candidates,
+                                         [dict(k, unmentioned=True) for k in unmentioned])
             if scored["score"] < target and offered:
                 progress(f"ATS: draft resume scores {scored['score']}/100 — rewording for "
                          f"{len(offered)} term(s): {len(scored['variants'])} said in another "
-                         "form, the rest mentioned in the bank...")
+                         "form, the rest to check against the bank...")
                 reworded = run(rephrase_resume(context, draft, offered), "phrasing")
                 rescored = ats.score(keywords, reworded)
                 kept = rescored["score"] > scored["score"]

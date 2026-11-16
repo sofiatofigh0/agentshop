@@ -74,7 +74,7 @@ IMPORTANCE_WEIGHT = {"required": 3, "preferred": 2, "mentioned": 1}
 
 MAX_KEYWORDS = 40
 STUFFING_LIMIT = 4      # a term repeated more often than this reads as stuffing
-MAX_REPHRASE_TERMS = 8  # the rephrasing pass looks at this many missing terms at most
+MAX_REPHRASE_TERMS = 20  # the rephrasing pass looks at this many missing terms at most
 
 
 def target_score() -> int:
@@ -430,7 +430,7 @@ def _grouped(keywords: list) -> str:
                      for name, terms in groups.items() if terms)
 
 
-def prompt_block(extracted: dict, bank_text: str = None, limit: int = 30) -> str:
+def prompt_block(extracted: dict, bank_text: str = None, limit: int = MAX_KEYWORDS) -> str:
     """The keyword list as a writing prompt carries it. Empty if none.
 
     Given the bank's text, the terms are split by whether the bank uses them.
@@ -461,9 +461,13 @@ def prompt_block(extracted: dict, bank_text: str = None, limit: int = 30) -> str
             listing += ("\nTHE BANK USES THESE WORDS. Where a sentence describes this work, "
                         "write the posting's exact term:\n" + _grouped(used) + "\n")
         if unused:
-            listing += ("\nTHE BANK NEVER USES THESE WORDS. Use one only where the bank "
-                        "clearly describes that exact work in other words; otherwise leave "
-                        "it out — it is a gap, not a target:\n" + _grouped(unused) + "\n")
+            listing += ("\nTHE BANK NEVER USES THESE WORDS — but it may describe the same "
+                        "work in other words. Where it does, write the posting's term: an "
+                        "LLM + RAG pipeline the candidate built is \"llm application "
+                        "development\"; working with engineering, design and legal is "
+                        "\"cross-functional collaboration\". Where the bank does not "
+                        "describe the work at all, leave the term out — that is a real "
+                        "gap, and it stays one:\n" + _grouped(unused) + "\n")
 
     return f"""
 
@@ -483,14 +487,25 @@ Use them the way a careful writer would, not the way a keyword stuffer would:
 """
 
 
-def rephrase_offer(variants: list, candidates: list) -> list:
+# A requirement stated as a length of time: "5+ years", "3 years of experience".
+# No rewording makes one true, so it is never offered for rewording.
+_TENURE = re.compile(r"\b\d+\s*\+?\s*(?:years?|yrs)\b|years of experience", re.I)
+
+
+def rephrase_offer(variants: list, candidates: list, others: list = ()) -> list:
     """What the rephrasing pass is given, most valuable first, capped.
 
     Variants lead: the document already says each of them in another form, so
     rewording one to the posting's exact words adds no claim at all. Then the
-    missing terms the bank mentions, strongest first.
+    missing terms the bank mentions word for word. Then the rest: terms the
+    bank never uses literally but may well describe — "llm application
+    development" for an LLM pipeline the candidate built. A text search cannot
+    see that; the model, which has the whole bank, can, and the rephrasing
+    prompt holds it to using a term only where the work is really there.
+    Tenure requirements are never offered.
     """
-    return (list(variants) + list(candidates))[:MAX_REPHRASE_TERMS]
+    pool = list(variants) + list(candidates) + list(others)
+    return [k for k in pool if not _TENURE.search(k["term"])][:MAX_REPHRASE_TERMS]
 
 
 def rephrase_block(offered: list) -> str:
@@ -504,11 +519,21 @@ def rephrase_block(offered: list) -> str:
             "posting's words, so a search for the posting's term does not find them. "
             "Reword each to the posting's exact term:\n"
             + "\n".join(f'- "{k["used"]}" -> "{k["term"]}"  ({k["importance"]})' for k in variants))
-    if missing:
+    mentioned = [k for k in missing if not k.get("unmentioned")]
+    unmentioned = [k for k in missing if k.get("unmentioned")]
+
+    def listed(keywords):
+        return "\n".join(f"- {k['term']}  ({k['importance']}, "
+                         f"{CATEGORY_LABEL[k['category']].lower()})" for k in keywords)
+
+    if mentioned:
+        parts.append("NOT YET USED, BUT THE BANK MENTIONS THE WORK:\n" + listed(mentioned))
+    if unmentioned:
         parts.append(
-            "NOT YET USED, BUT THE BANK MENTIONS THE WORK:\n"
-            + "\n".join(f"- {k['term']}  ({k['importance']}, "
-                        f"{CATEGORY_LABEL[k['category']].lower()})" for k in missing))
+            "NOT YET USED, AND THE BANK NEVER USES THESE WORDS — check each against the "
+            "bank. Use one only where the bank describes that exact work in other words "
+            "(an LLM + RAG pipeline is \"llm application development\"). If it does not, "
+            "leave the term out:\n" + listed(unmentioned))
     return "\n\n".join(parts)
 
 

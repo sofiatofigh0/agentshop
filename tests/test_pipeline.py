@@ -124,12 +124,16 @@ class Pipeline(unittest.TestCase):
 
         chain = [s for s in fake.steps if s in ("resume", "phrasing")]
         self.assertEqual(chain, ["resume", "phrasing"])
-        # Only the terms the bank mentions were offered to the pass.
+        # Terms the bank mentions come first; terms it never words that way
+        # follow under their own heading, for the model to check against the
+        # bank rather than claim.
         offered = fake.inputs["phrasing"][1]
-        self.assertIn("- sql", offered)
-        self.assertIn("- llm evaluation", offered)
-        self.assertNotIn("kubernetes", offered)
-        self.assertNotIn("a/b testing", offered)
+        mentioned, _, judged = offered.partition("THE BANK NEVER USES THESE WORDS")
+        self.assertIn("- sql", mentioned)
+        self.assertIn("- llm evaluation", mentioned)
+        self.assertIn("kubernetes", judged)
+        self.assertIn("a/b testing", judged)
+        self.assertIn("If it does not, leave the term out", judged)
 
         self.assertEqual(package["ats"]["resume"], 75)
         self.assertEqual(package["ats"]["target"], 75)
@@ -153,8 +157,9 @@ class Pipeline(unittest.TestCase):
         # The variant leads: the draft already says "roadmap", so rewording it
         # to "product roadmap" adds no claim. Then the bank-mentioned terms.
         self.assertEqual(data["rephrasing_pass"],
-                         {"considered": 3, "before": 0, "after": 75, "kept": True,
-                          "terms": ["product roadmap", "llm evaluation", "sql"]})
+                         {"considered": 5, "before": 0, "after": 75, "kept": True,
+                          "terms": ["product roadmap", "llm evaluation", "sql",
+                                    "a/b testing", "kubernetes"]})
         self.assertEqual(data["resume"]["score"], 75)
         self.assertEqual(len(data["keywords"]), 5)
         with open(os.path.join(run_dir, "run.json")) as handle:
@@ -179,13 +184,26 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(package["ats"]["resume"], 100)
         self.assertEqual(package["generation_calls"], 4)
 
-    def test_no_rephrasing_when_there_is_nothing_honest_to_offer(self):
-        """No variant on the page and nothing in the bank: no call is spent."""
+    def test_no_rephrasing_when_only_tenure_is_missing(self):
+        """No rewording makes "5+ years" true, so no call is spent on it."""
         fake = Fake(resume=BARE)
-        with mock.patch.object(gen, "BANK_PROSE", "unrelated work entirely"):
-            package = self.run_pipeline(fake)
+        tenure = {"title": "Senior Product Manager", "keywords": [
+            {"term": "5+ years", "category": "credential", "importance": "required",
+             "aliases": []}]}
+        package = self.run_pipeline(fake, extract=lambda jd: (tenure, fake_usage()))
         self.assertNotIn("phrasing", fake.steps)
         self.assertEqual(package["ats"]["resume"], 0)
+
+    def test_terms_the_bank_never_words_are_offered_for_judgement(self):
+        """A text search cannot see that an LLM pipeline is "llm application
+        development"; the model, which has the bank, is asked to check."""
+        fake = Fake(resume=BARE)
+        with mock.patch.object(gen, "BANK_PROSE", "unrelated work entirely"):
+            self.run_pipeline(fake)
+        self.assertIn("phrasing", fake.steps)
+        offered = fake.inputs["phrasing"][1]
+        self.assertIn("THE BANK NEVER USES THESE WORDS", offered)
+        self.assertNotIn("BUT THE BANK MENTIONS THE WORK", offered)
 
     def test_a_variant_alone_justifies_the_pass(self):
         """A variant is already claimed on the page, so it needs no bank check."""
@@ -194,7 +212,7 @@ class Pipeline(unittest.TestCase):
             self.run_pipeline(fake)
         self.assertIn("phrasing", fake.steps)
         self.assertIn('"roadmap" -> "product roadmap"', fake.inputs["phrasing"][1])
-        self.assertNotIn("NOT YET USED", fake.inputs["phrasing"][1])
+        self.assertNotIn("BUT THE BANK MENTIONS THE WORK", fake.inputs["phrasing"][1])
 
     def test_reworded_draft_dropped_when_it_does_not_score_higher(self):
         fake = Fake(reworded=DRAFT)

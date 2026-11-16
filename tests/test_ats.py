@@ -306,7 +306,8 @@ class PromptMaterial(unittest.TestCase):
             self.assertNotIn(term, unused.split("Use them the way")[0])
         for term in ("kubernetes", "c++", "a/b testing"):
             self.assertIn(term, unused)
-        self.assertIn("it is a gap, not a target", block)
+        self.assertIn("that is a real gap", block)
+        self.assertIn("llm application development", block)
         self.assertIn('"Senior PM"', block)
 
     def test_a_group_with_nothing_in_it_is_left_out(self):
@@ -326,6 +327,20 @@ class PromptMaterial(unittest.TestCase):
         offered = ats.rephrase_offer(variants, candidates)
         self.assertEqual(len(offered), ats.MAX_REPHRASE_TERMS)
         self.assertEqual([k["term"] for k in offered[:3]], ["variant 0", "variant 1", "variant 2"])
+
+    def test_terms_the_bank_never_uses_are_offered_last_for_judgement(self):
+        offered = ats.rephrase_offer([], [kw("sql", "tool")],
+                                     [dict(kw("llm application development"), unmentioned=True),
+                                      dict(kw("5+ years", "credential"), unmentioned=True)])
+        self.assertEqual([k["term"] for k in offered], ["sql", "llm application development"])
+        block = ats.rephrase_block(offered)
+        self.assertIn("NOT YET USED, BUT THE BANK MENTIONS THE WORK:\n- sql", block)
+        self.assertIn("THE BANK NEVER USES THESE WORDS", block)
+        self.assertIn("- llm application development", block)
+
+    def test_tenure_is_never_offered(self):
+        for term in ("5+ years", "3 years of experience", "10 yrs", "years of experience"):
+            self.assertEqual(ats.rephrase_offer([], [kw(term, "credential")]), [], term)
 
     def test_rephrase_block_names_the_form_to_replace(self):
         block = ats.rephrase_block([dict(kw("llm evaluation"), used="llm evals"),
