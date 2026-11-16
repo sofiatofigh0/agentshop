@@ -552,10 +552,11 @@ def rephrase_block(offered: list) -> str:
             "leave the term out:\n" + listed(unmentioned))
     if any(_TENURE.search(k["term"]) for k in offered):
         parts.append(
-            "A YEARS-OF-EXPERIENCE TERM is listed because total experience meets it. Use "
-            "it once, in the Summary, as total industry experience with the product "
-            "split from the TENURE block — \"5+ years of industry experience, nearly 4 "
-            "in product management\" — never as years in the job title.")
+            "A YEARS-OF-EXPERIENCE TERM is listed because total experience meets it. "
+            "Where and how to use it is your judgement; whatever you write must stay "
+            "true of the TENURE figures. Total years are not years in the job title: "
+            "\"5+ years of industry experience, nearly 4 in product management\" is "
+            "true; \"5+ years of PM experience\" is not.")
     return "\n\n".join(parts)
 
 

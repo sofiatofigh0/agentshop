@@ -32,8 +32,9 @@ class Arithmetic(unittest.TestCase):
 
     def test_the_block_gives_the_split(self):
         block = gen.tenure_block(BANK, TODAY)
-        self.assertIn("total industry experience: 5+ years", block)
-        self.assertIn("of which product management: nearly 4 years", block)
+        self.assertIn('total industry experience: 5 years 3 months (e.g. "5+ years")', block)
+        self.assertIn('of which product management: 3 years 11 months (e.g. "nearly 4 years")', block)
+        self.assertIn("Phrase them however", block)
         self.assertIn("nearly 1.5 years as Associate Consulting Engineer, Streamco", block)
 
     def test_the_block_is_in_every_writing_prompt(self):
@@ -43,10 +44,17 @@ class Arithmetic(unittest.TestCase):
 class Framing(unittest.TestCase):
     def test_ground_rules_teach_the_total_with_the_split(self):
         rules = " ".join(gen.GROUND_RULES.split())
-        self.assertIn("FRAME EVERY TRUE FACT IN ITS MOST FAVOURABLE TRUE FORM", rules)
-        self.assertIn('"5+ years of industry experience, nearly 4 in product management"', rules)
+        self.assertIn("HOW TO PHRASE A FACT IS YOUR JUDGEMENT", rules)
+        self.assertIn("Whenever two phrasings are both true, choose the more favourable one", rules)
+        self.assertIn("not templates to copy", rules)
         self.assertIn('"5+ years of PM experience" is false', rules)
+        self.assertIn("The one limit is truth", rules)
         self.assertIn("You may never manufacture a number", rules)
+
+    def test_the_rephrasing_pass_may_improve_framing(self):
+        prompt = " ".join(gen.PHRASING_PROMPT.split())
+        self.assertIn("its framing is also yours to judge", prompt)
+        self.assertIn("change a fact", prompt)
 
 
 class Offer(unittest.TestCase):
@@ -56,7 +64,9 @@ class Offer(unittest.TestCase):
     def test_tenure_met_by_total_is_offered(self):
         offered = ats.rephrase_offer([], [], [self.kw("5+ years")], max_years=5)
         self.assertEqual([k["term"] for k in offered], ["5+ years"])
-        self.assertIn("never as years in the job title", ats.rephrase_block(offered))
+        block = ats.rephrase_block(offered)
+        self.assertIn("your judgement", block)
+        self.assertIn('"5+ years of PM experience" is not', block)
 
     def test_tenure_beyond_total_is_never_offered(self):
         self.assertEqual(ats.rephrase_offer([], [], [self.kw("7+ years")], max_years=5), [])

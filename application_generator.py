@@ -184,12 +184,21 @@ def tenure(bank: dict = None, today: datetime = None) -> dict:
     }
 
 
+def _exact(months: int) -> str:
+    years, rest = divmod(months, 12)
+    return f"{years} years {rest} months" if years else f"{rest} months"
+
+
 def tenure_block(bank: dict = None, today: datetime = None) -> str:
+    """The figures as facts, with a safe reading of each. The wording is the
+    writer's to choose; the figures are not."""
     t = tenure(bank, today)
     others = "; ".join(f"{v} as {k}" for k, v in t["other"].items()) or "none"
-    return f"""TENURE — computed from the role dates in the bank; use these figures, never your own:
-  total industry experience: {t["total"]}
-  of which product management: {t["pm"]}
+    return f"""TENURE — facts computed from the role dates in the bank. Phrase them however
+serves the application best ("5+ years", "over five years", "nearly four years in
+product"), but every statement of years must stay true of these figures:
+  total industry experience: {_exact(t["total_months"])} (e.g. "{t["total"]}")
+  of which product management: {_exact(t["pm_months"])} (e.g. "{t["pm"]}")
   other roles: {others}"""
 
 
@@ -233,28 +242,32 @@ Other fields:
 
 You may improve framing aggressively. You may never manufacture a number.
 
-FRAME EVERY TRUE FACT IN ITS MOST FAVOURABLE TRUE FORM. The line is between
-choosing which true thing to say and how to say it — always allowed — and
-saying something that is not true — never allowed. For example:
+HOW TO PHRASE A FACT IS YOUR JUDGEMENT. For every fact you use, decide how to
+say it so it lands most strongly for this posting: which words, which emphasis,
+which order, what to lead with, what to leave unsaid. Whenever two phrasings
+are both true, choose the more favourable one. The bank's wording is a record
+of the facts, not a script — rephrase it freely.
 
-- Tenure. When a posting asks for more product-management years than the
-  candidate has, but total experience meets it, lead with the total and give
-  the split: "5+ years of industry experience, nearly 4 in product
-  management". Never attach the total to the PM title ("5+ years of PM
-  experience" is false), and never round a figure up past the TENURE block.
-- Adjacent experience. A consulting-engineer or technical role is technical
-  depth a PM posting values: present it as "technical foundation in
-  distributed systems", not as time spent outside product.
-- Scope and outcome. Lead each bullet with the result and its scale ("serving
-  ~5,000 advisors", "60% of platform deal flow") rather than the activity.
-- Verbs. Use the strongest verb the bank supports: "led" where the candidate
-  led, "owned" where they owned; never "led" where the bank says "supported".
-- Order. Put the most relevant true thing first: in the Summary, in each role,
-  in Skills.
+The one limit is truth. Every statement must stay true of what the bank says:
+the candidate should be able to defend it in an interview with the bank open
+in front of them. Favourable framing changes how a fact reads, never what the
+fact is — no larger scope, higher seniority, longer tenure or bigger number
+than the bank supports.
 
-Use the TENURE block for every statement of years; it is computed from the
-role dates, so it is the only figure allowed. The bank's own wording on
-seniority still governs titles. Personal background never enters a resume by
+Illustrations of the judgement meant — not templates to copy:
+- A posting wants "5+ years of product management" and the candidate has
+  nearly 4 in product and 5+ overall: "5+ years of industry experience, nearly
+  4 in product management" is true and strong; "5+ years of PM experience" is
+  false.
+- A consulting-engineer role reads as technical depth a PM posting values,
+  rather than as time spent outside product.
+- A bullet can lead with its outcome and scale rather than the activity.
+- The strongest verb the bank supports: "led" where the candidate led, never
+  where the bank says "supported".
+
+Statements of years come from the TENURE block, which is computed from the
+role dates; phrase them as you judge best within those figures. Titles stay
+as the bank states them. Personal background never enters a resume by
 default — only where the profile's policy says it creates a genuinely
 relevant narrative."""
 
@@ -291,8 +304,9 @@ Three hard limits, because a stretch is exactly where applications start lying:
   a gap. A gap closed by translation is persuasive; a gap closed by fabrication
   ends the application. Where nothing honestly transfers, say nothing — an
   unaddressed requirement costs far less than one answered with fiction.
-- Reframing is not promotion. The underlying claim must stay exactly as true as
-  the bank states it, at the same seniority, scope and precision.
+- Reframing is not promotion. However you phrase a claim, it must stay true of
+  what the bank says: the same seniority, no larger scope, no sharper number.
+  The wording is yours to judge; the facts are not.
 - Never mention that this is a stretch. No apologising, no flagging thin
   experience, no "while I have not directly...". The documents an employer
   receives make the positive case and stop; the honest accounting of what is
@@ -660,6 +674,8 @@ the term — changing the sentence's structure if that is what it takes to read
 naturally.
 
 What you may change: the wording and structure of sentences that are there.
+While you are in a sentence, its framing is also yours to judge: where a more
+favourable phrasing is still true of the bank, use it.
 
 What you may not do:
 - add a bullet, a skills entry, a project, or a claim of any kind
@@ -668,7 +684,8 @@ What you may not do:
   the list came from a text search, not from judgement, and the judgement is
   yours
 - repeat a term for effect, or bolt one onto the end of a sentence
-- change any employer, title, date, metric, scope, or the document's structure
+- change a fact — an employer, title, date, metric or scope — or the
+  document's structure
 - treat a bullet's bold project label as a slot for a keyword. It names the
   project and stays two or three words; reword it only if the new wording is
   still that project's name. A bullet that has no label was left plain on

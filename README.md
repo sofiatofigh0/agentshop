@@ -116,21 +116,24 @@ never usable in a document, however hedged.
 
 ## Favourable framing, nothing invented
 
-Every writing prompt carries one rule: frame every true fact in its most
-favourable true form. Choosing which true thing to say, and how, is always
-allowed; saying something untrue never is. The examples it teaches: lead with
-the result and its scale, use the strongest verb the bank supports, present a
-technical role as technical depth, and put the most relevant true thing first.
+How a fact is phrased is the model's judgement: which words, which emphasis,
+what to lead with, what to leave unsaid. Whenever two phrasings are both true
+it is told to choose the more favourable one, and the bank's wording is a
+record of the facts, not a script. The one limit is truth — every statement
+must stay defensible with the bank open — so framing changes how a fact reads,
+never what it is: no larger scope, higher seniority, longer tenure or bigger
+number. The prompt gives a few illustrations and says they are not templates.
 
 Tenure is the case that matters most for matching, and it is computed in code
 (`tenure()` in `application_generator.py`) from the role dates — months
 inclusive, overlaps counted once, gaps not counted — then phrased without ever
 rounding up: 63 months is "5+ years", 47 is "nearly 4 years", 17 is "nearly
-1.5 years". The writers get those figures as a fixed TENURE block. So a
-posting that asks for "5+ years" gets "5+ years of industry experience, nearly
-4 in product management" in the Summary — true, and an exact match — while
-"5+ years of PM experience" is called out as false, and a posting asking for
-more years than the total gets no tenure claim at all.
+1.5 years". The writers get the exact figures as a TENURE block and
+choose the wording themselves, within them. So a posting that asks for "5+
+years" can get "5+ years of industry experience, nearly 4 in product
+management" — true, and an exact match — while "5+ years of PM experience" is
+false, and a posting asking for more years than the total gets no tenure
+claim at all.
 
 ## How a resume bullet is shaped
 
