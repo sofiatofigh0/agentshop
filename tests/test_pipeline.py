@@ -184,11 +184,12 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(package["ats"]["resume"], 100)
         self.assertEqual(package["generation_calls"], 4)
 
-    def test_no_rephrasing_when_only_tenure_is_missing(self):
-        """No rewording makes "5+ years" true, so no call is spent on it."""
+    def test_no_rephrasing_when_only_unmet_tenure_is_missing(self):
+        """Total experience is under 8 years, so no rewording makes "8+ years"
+        true and no call is spent on it."""
         fake = Fake(resume=BARE)
         tenure = {"title": "Senior Product Manager", "keywords": [
-            {"term": "5+ years", "category": "credential", "importance": "required",
+            {"term": "8+ years", "category": "credential", "importance": "required",
              "aliases": []}]}
         package = self.run_pipeline(fake, extract=lambda jd: (tenure, fake_usage()))
         self.assertNotIn("phrasing", fake.steps)

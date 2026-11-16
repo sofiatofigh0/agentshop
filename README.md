@@ -114,6 +114,24 @@ The bank also tags every claim with provenance — `verified_resume`,
 `candidate_provided`, `supported_inference`, or `needs_validation`. The last is
 never usable in a document, however hedged.
 
+## Favourable framing, nothing invented
+
+Every writing prompt carries one rule: frame every true fact in its most
+favourable true form. Choosing which true thing to say, and how, is always
+allowed; saying something untrue never is. The examples it teaches: lead with
+the result and its scale, use the strongest verb the bank supports, present a
+technical role as technical depth, and put the most relevant true thing first.
+
+Tenure is the case that matters most for matching, and it is computed in code
+(`tenure()` in `application_generator.py`) from the role dates — months
+inclusive, overlaps counted once, gaps not counted — then phrased without ever
+rounding up: 63 months is "5+ years", 47 is "nearly 4 years", 17 is "nearly
+1.5 years". The writers get those figures as a fixed TENURE block. So a
+posting that asks for "5+ years" gets "5+ years of industry experience, nearly
+4 in product management" in the Summary — true, and an exact match — while
+"5+ years of PM experience" is called out as false, and a posting asking for
+more years than the total gets no tenure claim at all.
+
 ## How a resume bullet is shaped
 
 Every Work Experience bullet opens with the project it is about, in two or three

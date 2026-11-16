@@ -105,6 +105,94 @@ PROFILE = json.dumps(CANDIDATE_PROFILE, indent=2)
 # claim cannot make a keyword look supported.
 BANK_PROSE = ats.bank_prose(BANK_FOR_MATCHING)
 
+# --------------------------------------------------------------------------
+# Tenure — computed from the bank's dates, never estimated by the model
+#
+# A posting that asks for "5+ years" is matched literally, and the honest
+# answer is often "5+ years of industry experience, nearly 4 in product
+# management". Getting that right means arithmetic over date ranges, which a
+# model does unreliably and, under pressure to match, generously. So it is
+# done here, months inclusive, and handed to the writers as fixed figures.
+# --------------------------------------------------------------------------
+
+_MONTHS = {m: i for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july", "august",
+     "september", "october", "november", "december"], 1)}
+
+
+def _month_index(token: str, today: datetime) -> int:
+    token = token.strip().lower()
+    if token in ("present", "current", "now"):
+        return today.year * 12 + today.month - 1
+    month, _, year = token.partition(" ")
+    return int(year) * 12 + _MONTHS[month] - 1
+
+
+def _months(dates: str, today: datetime) -> int:
+    """Whole months in "Month Year - Month Year", both ends included."""
+    start, _, end = dates.partition(" - ")
+    return _month_index(end, today) - _month_index(start, today) + 1
+
+
+def _years_phrase(months: int) -> str:
+    """The most favourable wording that is still exactly true.
+
+    5 years 4 months is "5+ years"; 1 year 5 months is "nearly 1.5 years";
+    1 year 7 months is "1.5+ years"; 3 years 11 months is "nearly 4 years",
+    never "4 years". Under a year is counted in months.
+    """
+    years, rest = divmod(months, 12)
+    if years == 0:
+        return f"{months} months"
+    if rest >= 9:
+        return f"nearly {years + 1} years"
+    if rest >= 6:
+        return f"{years}.5+ years"
+    if rest == 5:
+        return f"nearly {years}.5 years"
+    return f"{years}+ years" if rest else f"{years} years"
+
+
+def tenure(bank: dict = None, today: datetime = None) -> dict:
+    """Total, product-management and other experience, in months and words.
+
+    A role counts as product management when its title says Product Manager.
+    Overlapping roles are not double-counted; gaps between roles are not
+    counted at all.
+    """
+    bank = EXPERIENCE_BANK if bank is None else bank
+    today = today or datetime.now()
+    pm, other, every = set(), {}, set()
+    for role in bank["roles"]:
+        try:
+            start, _, end = role["dates"].partition(" - ")
+            first, last = _month_index(start, today), _month_index(end, today)
+        except (KeyError, ValueError):
+            continue
+        span = set(range(first, last + 1))
+        every |= span
+        if "product manager" in role.get("title", "").lower():
+            pm |= span
+        else:
+            key = f'{role.get("title", "")}, {role.get("company", "")}'
+            other[key] = other.get(key, set()) | span
+    return {
+        "total_months": len(every), "total": _years_phrase(len(every)),
+        "total_years_floor": len(every) // 12,
+        "pm_months": len(pm), "pm": _years_phrase(len(pm)),
+        "other": {k: _years_phrase(len(v)) for k, v in other.items()},
+    }
+
+
+def tenure_block(bank: dict = None, today: datetime = None) -> str:
+    t = tenure(bank, today)
+    others = "; ".join(f"{v} as {k}" for k, v in t["other"].items()) or "none"
+    return f"""TENURE — computed from the role dates in the bank; use these figures, never your own:
+  total industry experience: {t["total"]}
+  of which product management: {t["pm"]}
+  other roles: {others}"""
+
+
 # The rule every writing prompt inherits. Stated once, repeated by reference.
 GROUND_RULES = """The EXPERIENCE BANK below is the only source of facts about
 this candidate. You may reword, reorder, shorten, expand, choose what to
@@ -145,9 +233,30 @@ Other fields:
 
 You may improve framing aggressively. You may never manufacture a number.
 
-Use the bank's own wording for tenure and seniority rather than computing your
-own. Personal background never enters a resume by default — only where the
-profile's policy says it creates a genuinely relevant narrative."""
+FRAME EVERY TRUE FACT IN ITS MOST FAVOURABLE TRUE FORM. The line is between
+choosing which true thing to say and how to say it — always allowed — and
+saying something that is not true — never allowed. For example:
+
+- Tenure. When a posting asks for more product-management years than the
+  candidate has, but total experience meets it, lead with the total and give
+  the split: "5+ years of industry experience, nearly 4 in product
+  management". Never attach the total to the PM title ("5+ years of PM
+  experience" is false), and never round a figure up past the TENURE block.
+- Adjacent experience. A consulting-engineer or technical role is technical
+  depth a PM posting values: present it as "technical foundation in
+  distributed systems", not as time spent outside product.
+- Scope and outcome. Lead each bullet with the result and its scale ("serving
+  ~5,000 advisors", "60% of platform deal flow") rather than the activity.
+- Verbs. Use the strongest verb the bank supports: "led" where the candidate
+  led, "owned" where they owned; never "led" where the bank says "supported".
+- Order. Put the most relevant true thing first: in the Summary, in each role,
+  in Skills.
+
+Use the TENURE block for every statement of years; it is computed from the
+role dates, so it is the only figure allowed. The bank's own wording on
+seniority still governs titles. Personal background never enters a resume by
+default — only where the profile's policy says it creates a genuinely
+relevant narrative."""
 
 
 # When the agent did not judge the role a clear fit, the candidate may still
@@ -197,6 +306,8 @@ Three hard limits, because a stretch is exactly where applications start lying:
 # first, the per-run material second, and the per-step instructions last —
 # swapping the order caches nothing.
 STABLE_PREFIX = f"""{GROUND_RULES}
+
+{tenure_block()}
 
 EXPERIENCE BANK — the only source of facts about this candidate:
 {FACTS}
@@ -908,7 +1019,8 @@ def generate_application_package(
             scored = ats.score(keywords, draft)
             candidates, unmentioned = ats.bank_supported(scored["missing"], BANK_PROSE)
             offered = ats.rephrase_offer(scored["variants"], candidates,
-                                         [dict(k, unmentioned=True) for k in unmentioned])
+                                         [dict(k, unmentioned=True) for k in unmentioned],
+                                         max_years=tenure()["total_years_floor"])
             if scored["score"] < target and offered:
                 progress(f"ATS: draft resume scores {scored['score']}/100 — rewording for "
                          f"{len(offered)} term(s): {len(scored['variants'])} said in another "

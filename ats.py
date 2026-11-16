@@ -488,11 +488,26 @@ Use them the way a careful writer would, not the way a keyword stuffer would:
 
 
 # A requirement stated as a length of time: "5+ years", "3 years of experience".
-# No rewording makes one true, so it is never offered for rewording.
-_TENURE = re.compile(r"\b\d+\s*\+?\s*(?:years?|yrs)\b|years of experience", re.I)
+_TENURE = re.compile(r"\b(\d+)\s*\+?\s*(?:years?|yrs)\b|years of experience", re.I)
 
 
-def rephrase_offer(variants: list, candidates: list, others: list = ()) -> list:
+def _tenure_ok(term: str, max_years) -> bool:
+    """A tenure term may be offered only when total experience meets it.
+
+    It is then written as total industry experience with the product split
+    given (the prompt's TENURE block), never as years in the title. Without a
+    known total, or above it, no rewording makes it true.
+    """
+    match = _TENURE.search(term)
+    if not match:
+        return True
+    if max_years is None:
+        return False
+    return match.group(1) is None or int(match.group(1)) <= max_years
+
+
+def rephrase_offer(variants: list, candidates: list, others: list = (),
+                   max_years: int = None) -> list:
     """What the rephrasing pass is given, most valuable first, capped.
 
     Variants lead: the document already says each of them in another form, so
@@ -502,10 +517,11 @@ def rephrase_offer(variants: list, candidates: list, others: list = ()) -> list:
     development" for an LLM pipeline the candidate built. A text search cannot
     see that; the model, which has the whole bank, can, and the rephrasing
     prompt holds it to using a term only where the work is really there.
-    Tenure requirements are never offered.
+    A tenure requirement is offered only when `max_years` — whole years of
+    total experience, computed from the bank's dates — meets it.
     """
     pool = list(variants) + list(candidates) + list(others)
-    return [k for k in pool if not _TENURE.search(k["term"])][:MAX_REPHRASE_TERMS]
+    return [k for k in pool if _tenure_ok(k["term"], max_years)][:MAX_REPHRASE_TERMS]
 
 
 def rephrase_block(offered: list) -> str:
@@ -534,6 +550,12 @@ def rephrase_block(offered: list) -> str:
             "bank. Use one only where the bank describes that exact work in other words "
             "(an LLM + RAG pipeline is \"llm application development\"). If it does not, "
             "leave the term out:\n" + listed(unmentioned))
+    if any(_TENURE.search(k["term"]) for k in offered):
+        parts.append(
+            "A YEARS-OF-EXPERIENCE TERM is listed because total experience meets it. Use "
+            "it once, in the Summary, as total industry experience with the product "
+            "split from the TENURE block — \"5+ years of industry experience, nearly 4 "
+            "in product management\" — never as years in the job title.")
     return "\n\n".join(parts)
 
 
